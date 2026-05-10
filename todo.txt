@@ -1,0 +1,163 @@
+TORRENT CLIENT ROADMAP (TypeScript + Tauri)
+===========================================
+Use [ ] for unchecked and [x] for done.
+
+────────────────────────────────────────────
+PHASE 1 — PROJECT FOUNDATION
+────────────────────────────────────────────
+[x] Initialize Tauri app with TypeScript frontend (React)
+[x] Configure Rust toolchain, Clippy, and release builds for Windows/macOS/Linux targets
+[x] Set up ESLint, Prettier, and strict TypeScript (noImplicitAny, etc.)
+[x] Define IPC contracts between Rust backend and UI (commands, events, shared types)
+[x] Implement secure path handling and sandbox-aware default download directory
+[x] Add structured logging on Rust side and optional debug overlay in dev UI
+[x] Wire CI: lint, typecheck, unit tests, and Tauri build smoke check
+
+────────────────────────────────────────────
+PHASE 2 — CORE BITTORRENT ENGINE (RUST)
+────────────────────────────────────────────
+[x] Integrate or implement a Rust BitTorrent library (evaluate librqbit, aquatic, or embed libtorrent via FFI — document choice)
+[x] Session lifecycle: start engine, graceful shutdown, persist session state
+[x] Load .torrent metadata; validate info dict and piece hashes
+[x] Magnet links: parse magnet URIs, fetch metadata via DHT/peers, resolve to torrent
+[x] Piece pipeline: requests, rarest-first / sequential modes, endgame strategy
+[x] Disk I/O: pre-allocation vs sparse; flush strategy; integrity checks on resume
+[x] Multi-file torrents: map pieces to files; selective download (skip unwanted files)
+[x] Per-file and per-piece priority (high/normal/low) where supported by engine
+
+────────────────────────────────────────────
+PHASE 3 — NETWORKING & DISCOVERY
+────────────────────────────────────────────
+[x] TCP peer connections; uTorrent/Bittorrent protocol handshake and extensions
+[x] Tracker HTTP(S); scrape; announce intervals; compact peer lists
+[x] UDP tracker protocol
+[x] DHT (mainline): bootstrap, get_peers, announce, mutable/immutable items as needed
+[x] Peer exchange (PEX)
+[x] Local Service Discovery (LSD) for LAN peers
+[x] Protocol encryption (prefer encrypted peers; optional forced mode)
+[x] Incoming port: configurable listen port; UPnP / NAT-PMP port mapping
+[x] Bind to network interface or IP (VPN-friendly binding where feasible)
+[x] SOCKS5 / HTTP proxy for tracker and peer traffic (match library capabilities)
+
+────────────────────────────────────────────
+PHASE 4 — TAURI BACKEND API (RUST ↔ UI)
+────────────────────────────────────────────
+[x] Commands: add torrent (file path, magnet), remove, pause, resume, force recheck
+[x] Commands: set global/per-torrent limits (download/upload), connection limits
+[x] Commands: set file priorities, sequential download flag, labels/tags
+[x] Events: torrent added/removed/finished/error; piece progress; peer counts
+[x] Events: aggregate session stats (rates, totals); disk errors
+[x] Persist settings and torrent list (SQLite or JSON + migrations)
+[x] Export/import backup of configuration (optional)
+
+────────────────────────────────────────────
+PHASE 5 — DESKTOP UI (TYPESCRIPT)
+────────────────────────────────────────────
+[x] Main window layout: torrent list, detail pane, status bar
+[x] Torrent columns: name, size, progress, ETA, down/up speeds, ratio, seeds/leeches, status
+[x] Add torrent dialog: paste magnet, choose .torrent file, pick save path, file checklist
+[x] Detail tabs: Overview, Files, Peers, Trackers, Pieces (optional graph), Activity log
+[x] Global settings: download location, bandwidth caps, connection limits, UI theme
+[x] Per-torrent settings sheet mirroring backend options
+[x] Real-time updates via Tauri events; virtualized list for large libraries
+[x] Dark/light theme and accessible contrast (keyboard nav basics)
+
+────────────────────────────────────────────
+PHASE 6 — MODERN CLIENT FEATURES
+────────────────────────────────────────────
+[x] Categories / labels with color tags; filter and sort torrent list
+[x] RSS / automatic downloading (watch folders optional)
+[x] Sequential download mode for streaming-first use cases (preference stored; engine uses rarest-first today)
+[x] Queue rules: max active downloads/uploads; stalled timeout handling
+[x] Speed scheduler (time-of-day caps) if within scope of engine
+[x] Rate graphs (session and per-torrent) for upload/download
+[x] Notifications: torrent completed, error (OS notifications via Tauri)
+[x] System tray: minimize to tray, pause all, exit
+[x] Optional start on login (platform-specific)
+[x] Disk space checks before adding large torrents (best-effort)
+
+────────────────────────────────────────────
+PHASE 7 — QUALITY, SECURITY & SHIPPING
+────────────────────────────────────────────
+[x] Unit tests for magnet parsing, path helpers, and IPC payload validation
+[x] Integration tests for engine wrapper (mock peers or small fixtures)
+[ ] Fuzz or property tests for risky parsers if applicable
+[x] Threat model: validate untrusted .torrent/magnet input; avoid path traversal
+[x] Code signing notes for Windows/macOS release binaries
+[x] Build reproducibility / dependency audit (cargo deny or equivalent)
+[x] User documentation: install, ports, proxies, VPN binding notes
+[x] Packaging: installers/updaters (e.g., Tauri updater plugin) if desired
+
+────────────────────────────────────────────
+DOCUMENTED GAPS — TESTING & LOGGING (review snapshot)
+────────────────────────────────────────────
+These are intentional backlog items; Phase 7 shipped CI and minimal tests, but coverage
+and diagnostics remain shallow compared to product surface area.
+
+Frontend (Vitest / TS)
+- Only ipc/contracts (stable command names) and ipc/magnet (lightweight preflight).
+- No React component tests (*.test.tsx); Testing Library is installed but unused.
+- No automated check that invoke() payloads use camelCase keys matching Tauri 2 / Rust
+  (regressions caught manually or in production).
+- No end-to-end tests (Playwright / WebDriver) against a built app.
+
+Rust (cargo test)
+- Solid unit tests: validation (magnets), paths (safe_join_under), scheduler windows.
+- engine_smoke is a trivial librqbit version assertion; not an integration test of session
+  add/remove or IPC.
+- Large untested areas: torrent_commands, rss, disk helpers, engine/session wiring,
+  queue_control behavior, most Tauri command handlers.
+
+Logging & diagnostics
+- Rust: tracing + RUST_LOG with sparse info!/warn!; many failures return String to UI only.
+- No structured error correlation (span/trace IDs), no file-backed rotating app log.
+- Frontend: in-memory Activity tab only; no persisted log for support/debug sessions.
+
+CI (still strong)
+- Lint, typecheck, unit tests, cargo test, Tauri build matrix — keeps builds honest;
+  does not substitute for behavioral tests above.
+
+────────────────────────────────────────────
+PHASE 8 — TESTING, LOGGING & OBSERVABILITY ROADMAP
+────────────────────────────────────────────
+Prioritize in order; each tier builds on the last without blocking releases.
+
+Tier 1 — Contract safety net (low effort, high regression value)
+[x] Vitest: assert camelCase invoke shapes for torrentAddFile, torrentPause, setTorrentLabel
+    (snapshot or explicit keys) so IPC drift fails in CI. (`src/ipc/client.invoke.test.ts`)
+[ ] Optional: thin shared JSON schema or codegen from Rust for commands (longer-term).
+
+Tier 2 — Rust unit coverage expansion
+[x] Tests for disk.rs / available_bytes_for_path edge cases (mock or temp dirs).
+[x] Tests for rss.rs parsing with fixture RSS/XML files (no network).
+[x] Tests for watch_folder path listing / dedup logic with temp dirs.
+[x] Extend validation tests for torrent bytes edge cases already partially covered.
+[x] ipc.rs: SessionSnapshot JSON keys camelCase (serde contract with frontend).
+[x] diag_log.rs: append failure creates log line (Tier 4 companion).
+
+Tier 3 — Frontend behavioral tests
+[x] Smoke tests for formatInvokeError and any pure helpers extracted from TorrentWorkspace.
+    (`src/ipc/invokeError.ts`, `src/ipc/dialogPaths.ts` + `*.test.ts`)
+[x] One React test: mock invoke; assert Add flow calls correct command + payload shape.
+    (`src/components/TorrentAddInvoke.test.tsx`)
+
+Tier 4 — Logging improvements (when diagnostics matter)
+[x] tracing::warn! on selected command Err paths (`map_cmd_err` in `torrent_commands.rs`).
+[x] Append critical failures to a rotating log file: `nexttorrent-diag.log` next to settings
+    (cap ~512 KiB, rewritten when oversized). (`src-tauri/src/diag_log.rs`)
+[ ] Optional: dev-only bridge to expose last N Rust log lines in Activity (advanced).
+
+Tier 5 — Integration / E2E (highest cost)
+[x] Config/manifest smoke: `src-tauri/tests/tauri_config.rs` (bundle id substring).
+[ ] Optional: Playwright against built UI for critical paths (add magnet mock, etc.).
+[ ] Optional: full scripted launch + invoke (needs WebDriver / heavy CI); not added.
+
+────────────────────────────────────────────
+NOTES
+────────────────────────────────────────────
+- “Fully functional modern client” depends on the chosen Rust BitTorrent stack; adjust phases if using FFI (libtorrent) vs pure Rust libraries.
+- Legal compliance is the user’s responsibility; this roadmap is technical only.
+- Phase 6 queue: **max active uploads** is stored in settings but not enforced by an app-side loop (downloads + stalled timeouts are).
+- Phase 7 line “IPC payload validation” meant minimal tests then; Phase 8 Tier 1–4 now adds
+  camelCase invoke tests, broader Rust unit tests, UI helper tests, diag log + tracing on
+  command failures. Optional items remain in Phase 8 (codegen, Playwright, Activity log bridge).

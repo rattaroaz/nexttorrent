@@ -1,0 +1,24 @@
+{
+  "publisher": "CN=Nexttorrent",
+  "publisherDisplayName": "Nexttorrent",
+  "capabilities": {
+    "general": [
+      "internetClient",
+      "internetClientServer",
+      "privateNetworkClientServer"
+    ]
+  },
+  "extensions": {
+    "shareTarget": false,
+    "fileAssociations": [],
+    "protocolHandlers": []
+  },
+  "signing": {
+    "pfx": null,
+    "pfxPassword": null
+  },
+  "resourceIndex": {
+    "enabled": false,
+    "keepConfig": false
+  }
+}

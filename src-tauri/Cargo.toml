@@ -1,0 +1,53 @@
+[package]
+name = "nexttorrent"
+version = "0.1.0"
+description = "Nexttorrent desktop client"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "nexttorrent_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+thiserror = "2"
+anyhow = "1"
+bytes = "1"
+parking_lot = "0.12"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+rss = "2.0"
+sysinfo = "0.32"
+librqbit-core = "5"
+librqbit-buffers = "4.2"
+
+librqbit = { version = "8", default-features = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+
+[lints.rust]
+unsafe_code = "deny"
