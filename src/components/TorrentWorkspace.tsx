@@ -52,7 +52,13 @@ function mbpsToApproxBps(mbps: number): number {
   return mbps * 1024 * 1024;
 }
 
-type TabId = "overview" | "files" | "peers" | "trackers" | "pieces" | "activity";
+type TabId =
+  | "overview"
+  | "files"
+  | "peers"
+  | "trackers"
+  | "pieces"
+  | "activity";
 
 type SortKey = "name" | "progress" | "size" | "eta";
 
@@ -101,9 +107,8 @@ export function TorrentWorkspace() {
   useEffect(() => {
     addModalDragRef.current = addModalDrag;
   }, [addModalDrag]);
-  const [settingsDraft, setSettingsDraft] = useState<NexttorrentSettings | null>(
-    null,
-  );
+  const [settingsDraft, setSettingsDraft] =
+    useState<NexttorrentSettings | null>(null);
   const [magnetDraft, setMagnetDraft] = useState("");
   const [addOutputDir, setAddOutputDir] = useState<string | null>(null);
   /** After picking a `.torrent` path, user confirms with "Add to session". */
@@ -160,16 +165,14 @@ export function TorrentWorkspace() {
       const tb = sb?.total_bytes ?? 0;
       const pa = ta > 0 ? (sa?.progress_bytes ?? 0) / ta : 0;
       const pb = tb > 0 ? (sb?.progress_bytes ?? 0) / tb : 0;
-      const da =
-        mbpsToApproxBps(
-          (sa?.live as { download_speed?: { mbps?: number } } | undefined)
-            ?.download_speed?.mbps ?? 0,
-        );
-      const db =
-        mbpsToApproxBps(
-          (sb?.live as { download_speed?: { mbps?: number } } | undefined)
-            ?.download_speed?.mbps ?? 0,
-        );
+      const da = mbpsToApproxBps(
+        (sa?.live as { download_speed?: { mbps?: number } } | undefined)
+          ?.download_speed?.mbps ?? 0,
+      );
+      const db = mbpsToApproxBps(
+        (sb?.live as { download_speed?: { mbps?: number } } | undefined)
+          ?.download_speed?.mbps ?? 0,
+      );
       const ea =
         da > 0 && ta > (sa?.progress_bytes ?? 0)
           ? (ta - (sa?.progress_bytes ?? 0)) / da
@@ -226,7 +229,9 @@ export function TorrentWorkspace() {
       setDetail(null);
       return;
     }
-    void torrentDetails(selectedRef).then(setDetail).catch(() => setDetail(null));
+    void torrentDetails(selectedRef)
+      .then(setDetail)
+      .catch(() => setDetail(null));
   }, [selectedRef, payload?.torrents]);
 
   useEffect(() => {
@@ -429,7 +434,9 @@ export function TorrentWorkspace() {
           type="button"
           onClick={() => {
             void rssPollFeeds().then((r) =>
-              log(`RSS: added ${r.magnetsAdded}; ${r.messages.slice(0, 3).join("; ")}`),
+              log(
+                `RSS: added ${r.magnetsAdded}; ${r.messages.slice(0, 3).join("; ")}`,
+              ),
             );
           }}
         >
@@ -587,8 +594,8 @@ export function TorrentWorkspace() {
                   <button
                     type="button"
                     onClick={() => {
-                      void torrentForceRecheck(torrentRef(selectedRow)).then(() =>
-                        log("Force recheck (pause/resume)."),
+                      void torrentForceRecheck(torrentRef(selectedRow)).then(
+                        () => log("Force recheck (pause/resume)."),
                       );
                     }}
                   >
@@ -597,8 +604,8 @@ export function TorrentWorkspace() {
                   <button
                     type="button"
                     onClick={() => {
-                      void torrentRemove(torrentRef(selectedRow), false).then(() =>
-                        log("Removed from session."),
+                      void torrentRemove(torrentRef(selectedRow), false).then(
+                        () => log("Removed from session."),
                       );
                     }}
                   >
@@ -608,8 +615,8 @@ export function TorrentWorkspace() {
                     type="button"
                     className="danger"
                     onClick={() => {
-                      void torrentRemove(torrentRef(selectedRow), true).then(() =>
-                        log("Removed with files."),
+                      void torrentRemove(torrentRef(selectedRow), true).then(
+                        () => log("Removed with files."),
                       );
                     }}
                   >
@@ -682,10 +689,11 @@ export function TorrentWorkspace() {
                               void torrentUpdateOnlyFiles(
                                 torrentRef(selectedRow),
                                 indices,
-                              ).then(() =>
-                                void torrentDetails(
-                                  torrentRef(selectedRow),
-                                ).then(setDetail),
+                              ).then(
+                                () =>
+                                  void torrentDetails(
+                                    torrentRef(selectedRow),
+                                  ).then(setDetail),
                               );
                             }}
                           />
@@ -702,8 +710,9 @@ export function TorrentWorkspace() {
                 )}
                 {tab === "trackers" && (
                   <p className="muted">
-                    Tracker announces and scrape schedules are handled internally by
-                    librqbit (HTTP(S)/UDP). Use session DHT view in logs if needed.
+                    Tracker announces and scrape schedules are handled
+                    internally by librqbit (HTTP(S)/UDP). Use session DHT view
+                    in logs if needed.
                   </p>
                 )}
                 {tab === "pieces" && (
@@ -835,13 +844,19 @@ export function TorrentWorkspace() {
               <p className="hint">Selected file</p>
               <code className="pending-path">{pendingTorrentPath}</code>
               <div className="modal-actions">
-                <button type="button" onClick={() => void confirmAddTorrentFile()}>
+                <button
+                  type="button"
+                  onClick={() => void confirmAddTorrentFile()}
+                >
                   Add to session
                 </button>
                 <button type="button" onClick={() => void pickTorrentFile()}>
                   Choose different file…
                 </button>
-                <button type="button" onClick={() => setPendingTorrentPath(null)}>
+                <button
+                  type="button"
+                  onClick={() => setPendingTorrentPath(null)}
+                >
                   Clear selection
                 </button>
               </div>
@@ -987,8 +1002,8 @@ export function TorrentWorkspace() {
                 })
               }
             />
-            Prefer sequential download (stored for future engine support; librqbit v8 uses
-            rarest-first internally)
+            Prefer sequential download (stored for future engine support;
+            librqbit v8 uses rarest-first internally)
           </label>
           <label>
             Max active downloads (blank = unlimited)
@@ -1095,7 +1110,10 @@ export function TorrentWorkspace() {
                     value={settingsDraft.speedScheduler.slots[0]!.startHour}
                     onChange={(e) => {
                       const slots = [...settingsDraft.speedScheduler.slots];
-                      slots[0] = { ...slots[0]!, startHour: Number(e.target.value) };
+                      slots[0] = {
+                        ...slots[0]!,
+                        startHour: Number(e.target.value),
+                      };
                       setSettingsDraft({
                         ...settingsDraft,
                         speedScheduler: {
@@ -1115,7 +1133,10 @@ export function TorrentWorkspace() {
                     value={settingsDraft.speedScheduler.slots[0]!.endHour}
                     onChange={(e) => {
                       const slots = [...settingsDraft.speedScheduler.slots];
-                      slots[0] = { ...slots[0]!, endHour: Number(e.target.value) };
+                      slots[0] = {
+                        ...slots[0]!,
+                        endHour: Number(e.target.value),
+                      };
                       setSettingsDraft({
                         ...settingsDraft,
                         speedScheduler: {
@@ -1131,7 +1152,8 @@ export function TorrentWorkspace() {
                   <input
                     type="number"
                     value={
-                      settingsDraft.speedScheduler.slots[0]!.downloadLimitBps ?? ""
+                      settingsDraft.speedScheduler.slots[0]!.downloadLimitBps ??
+                      ""
                     }
                     onChange={(e) => {
                       const slots = [...settingsDraft.speedScheduler.slots];
@@ -1156,7 +1178,8 @@ export function TorrentWorkspace() {
                   <input
                     type="number"
                     value={
-                      settingsDraft.speedScheduler.slots[0]!.uploadLimitBps ?? ""
+                      settingsDraft.speedScheduler.slots[0]!.uploadLimitBps ??
+                      ""
                     }
                     onChange={(e) => {
                       const slots = [...settingsDraft.speedScheduler.slots];
@@ -1181,8 +1204,8 @@ export function TorrentWorkspace() {
 
           <h4 className="settings-section">RSS feeds</h4>
           <p className="hint">
-            Enable “auto add” for background polling (every ~15 min). Use “Poll RSS” for an
-            immediate fetch.
+            Enable “auto add” for background polling (every ~15 min). Use “Poll
+            RSS” for an immediate fetch.
           </p>
           {settingsDraft.rssFeeds.map((feed, idx) => (
             <div key={feed.id} className="rss-row">
@@ -1222,7 +1245,9 @@ export function TorrentWorkspace() {
               <button
                 type="button"
                 onClick={() => {
-                  const rssFeeds = settingsDraft.rssFeeds.filter((_, i) => i !== idx);
+                  const rssFeeds = settingsDraft.rssFeeds.filter(
+                    (_, i) => i !== idx,
+                  );
                   setSettingsDraft({ ...settingsDraft, rssFeeds });
                 }}
               >
@@ -1256,7 +1281,9 @@ export function TorrentWorkspace() {
           </button>
 
           <h4 className="settings-section">Watch folders</h4>
-          <p className="hint">Absolute paths, one per line. Scanned every ~2 minutes.</p>
+          <p className="hint">
+            Absolute paths, one per line. Scanned every ~2 minutes.
+          </p>
           <textarea
             rows={4}
             value={settingsDraft.watchFolders.join("\n")}
@@ -1272,8 +1299,8 @@ export function TorrentWorkspace() {
           />
 
           <p className="hint">
-            Listen ports and proxy changes may require restarting the app to take full effect
-            in the engine.
+            Listen ports and proxy changes may require restarting the app to
+            take full effect in the engine.
           </p>
           <div className="modal-actions">
             <button type="button" onClick={() => void saveSettings()}>

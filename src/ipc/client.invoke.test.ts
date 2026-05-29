@@ -35,8 +35,7 @@ describe("ipc invoke payloads (camelCase for Tauri 2)", () => {
 
   it("torrentAddMagnet passes camelCase keys", async () => {
     vi.mocked(core.invoke).mockResolvedValue({});
-    const m =
-      "magnet:?xt=urn:btih:cab507494d02ebb1178b38f2e9d7be299c86b862";
+    const m = "magnet:?xt=urn:btih:cab507494d02ebb1178b38f2e9d7be299c86b862";
     await torrentAddMagnet(m, null, null, false);
     expect(core.invoke).toHaveBeenCalledWith(IPC_COMMANDS.torrentAddMagnet, {
       magnet: m,

@@ -10,7 +10,9 @@ describe("ipc contracts", () => {
   it("uses stable invoke names for torrent commands", () => {
     expect(IPC_COMMANDS.torrentAddMagnet).toBe("torrent_add_magnet");
     expect(IPC_COMMANDS.torrentPause).toBe("torrent_pause");
-    expect(IPC_COMMANDS.getNexttorrentSettings).toBe("get_nexttorrent_settings");
+    expect(IPC_COMMANDS.getNexttorrentSettings).toBe(
+      "get_nexttorrent_settings",
+    );
     expect(IPC_COMMANDS.torrentPauseAll).toBe("torrent_pause_all");
     expect(IPC_COMMANDS.rssPollFeeds).toBe("rss_poll_feeds");
     expect(IPC_COMMANDS.diskFreeBytes).toBe("disk_free_bytes");

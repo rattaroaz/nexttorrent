@@ -1,6 +1,5 @@
 mod commands;
 mod diag_log;
-mod startup_fail;
 mod disk;
 mod engine;
 mod ipc;
@@ -9,6 +8,7 @@ mod queue_control;
 mod rss;
 mod scheduler;
 mod settings;
+mod startup_fail;
 mod state;
 mod torrent_commands;
 mod validation;

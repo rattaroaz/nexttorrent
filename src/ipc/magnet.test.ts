@@ -16,6 +16,8 @@ describe("magnet IPC client preflight", () => {
   });
 
   it("rejects plain HTTP URLs", () => {
-    expect(clientMagnetPreflight("https://example.com/file.torrent")).toBe(false);
+    expect(clientMagnetPreflight("https://example.com/file.torrent")).toBe(
+      false,
+    );
   });
 });

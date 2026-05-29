@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 pub fn fallback_config_dir() -> PathBuf {
     dirs::config_dir()
-        .unwrap_or_else(|| std::env::temp_dir())
+        .unwrap_or_else(std::env::temp_dir)
         .join("com.nexttorrent.desktop")
 }
 

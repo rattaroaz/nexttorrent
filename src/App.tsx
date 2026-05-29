@@ -42,13 +42,15 @@ function App() {
   useEffect(() => {
     let unlistenClose: (() => void) | undefined;
     void (async () => {
-      unlistenClose = await getCurrentWindow().onCloseRequested(async (event) => {
-        const s = await getNexttorrentSettings();
-        if (s.minimizeToTray) {
-          event.preventDefault();
-          await getCurrentWindow().hide();
-        }
-      });
+      unlistenClose = await getCurrentWindow().onCloseRequested(
+        async (event) => {
+          const s = await getNexttorrentSettings();
+          if (s.minimizeToTray) {
+            event.preventDefault();
+            await getCurrentWindow().hide();
+          }
+        },
+      );
     })();
     return () => {
       unlistenClose?.();

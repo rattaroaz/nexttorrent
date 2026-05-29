@@ -20,7 +20,12 @@ export function formatBps(n: number): string {
 }
 
 export function formatEta(seconds: number | null | undefined): string {
-  if (seconds == null || !Number.isFinite(seconds) || seconds < 0 || seconds === Infinity) {
+  if (
+    seconds == null ||
+    !Number.isFinite(seconds) ||
+    seconds < 0 ||
+    seconds === Infinity
+  ) {
     return "—";
   }
   const s = Math.floor(seconds);
