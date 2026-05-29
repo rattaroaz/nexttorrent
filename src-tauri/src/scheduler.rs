@@ -67,10 +67,18 @@ mod tests {
             ..Default::default()
         };
 
+        // Use Local when possible; fall back on CI containers that lack tzdata
+        // (the root cause of previous "cargo test" failures on GitHub ubuntu runners).
         let t = Local
             .with_ymd_and_hms(2024, 6, 15, 11, 0, 0)
             .single()
-            .expect("valid local date");
+            .unwrap_or_else(|| {
+                chrono::Utc
+                    .with_ymd_and_hms(2024, 6, 15, 11, 0, 0)
+                    .single()
+                    .unwrap()
+                    .with_timezone(&Local)
+            });
         let (d, _) = effective_rate_limits(&settings, t);
         assert_eq!(d.map(|n| n.get()), Some(10));
     }
