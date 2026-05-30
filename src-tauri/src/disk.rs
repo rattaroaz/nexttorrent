@@ -52,7 +52,9 @@ mod tests {
                 assert!(
                     matches!(
                         e.kind(),
-                        std::io::ErrorKind::NotFound | std::io::ErrorKind::Other | std::io::ErrorKind::Unsupported
+                        std::io::ErrorKind::NotFound
+                            | std::io::ErrorKind::Other
+                            | std::io::ErrorKind::Unsupported
                     ),
                     "unexpected error kind from available_bytes_for_path: {e:?}"
                 );
