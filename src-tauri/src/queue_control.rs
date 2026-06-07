@@ -80,7 +80,7 @@ pub async fn apply_queue_rules(state: &AppState, stall_ticks: &mut HashMap<Strin
 
     if let Some(max) = settings.max_active_downloads.filter(|m| *m > 0) {
         let mut d = downloaders;
-        d.sort_by(|a, b| b.1.cmp(&a.1));
+        d.sort_by_key(|b| std::cmp::Reverse(b.1));
         if d.len() > max as usize {
             for (key, _) in d.into_iter().skip(max as usize) {
                 if let Ok(idx) = TorrentIdOrHash::parse(&key) {
