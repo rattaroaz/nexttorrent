@@ -19,7 +19,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tauriCli = path.join(root, "node_modules", "@tauri-apps", "cli", "tauri.js");
+const tauriCli = path.join(
+  root,
+  "node_modules",
+  "@tauri-apps",
+  "cli",
+  "tauri.js",
+);
 const argv = process.argv.slice(2);
 const forceSigned = argv.includes("--signed");
 const passthrough = argv.filter((a) => a !== "--signed");
@@ -62,7 +68,11 @@ const args = ["build", ...passthrough];
 let unsignedConfigPath = null;
 if (!wantSigned) {
   // Merge config file — avoids Windows shell mangling of inline JSON / paths.
-  unsignedConfigPath = path.join(root, "src-tauri", ".tauri-build-unsigned.json");
+  unsignedConfigPath = path.join(
+    root,
+    "src-tauri",
+    ".tauri-build-unsigned.json",
+  );
   fs.writeFileSync(
     unsignedConfigPath,
     `${JSON.stringify({ bundle: { createUpdaterArtifacts: false } }, null, 2)}\n`,

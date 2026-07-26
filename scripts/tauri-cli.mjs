@@ -8,7 +8,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tauriCli = path.join(root, "node_modules", "@tauri-apps", "cli", "tauri.js");
+const tauriCli = path.join(
+  root,
+  "node_modules",
+  "@tauri-apps",
+  "cli",
+  "tauri.js",
+);
 const args = process.argv.slice(2);
 
 if (args[0] === "build") {
