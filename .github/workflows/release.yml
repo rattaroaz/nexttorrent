@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to build and publish (e.g. v1.1.0)"
+        required: true
+        default: "v1.1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Enable VBScript for WiX MSI builds
+        shell: pwsh
+        run: |
+          $cap = Get-WindowsCapability -Online |
+            Where-Object { $_.Name -like 'VBSCRIPT*' } |
+            Select-Object -First 1
+          if ($null -eq $cap) {
+            dism /online /enable-feature /featurename:VBSCRIPT /all /norestart
+          } elseif ($cap.State -ne 'Installed') {
+            Add-WindowsCapability -Online -Name $cap.Name
+          }
+
+      - name: Normalize signing secrets
+        shell: bash
+        env:
+          RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "${RAW_KEY// }" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY secret is missing"
+            exit 1
+          fi
+          if [ -z "${RAW_PASSWORD// }" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY_PASSWORD secret is missing"
+            exit 1
+          fi
+          {
+            echo "TAURI_SIGNING_PRIVATE_KEY<<EOF"
+            printf '%s' "$RAW_KEY" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+            echo
+            echo "EOF"
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD<<EOF"
+            printf '%s' "$RAW_PASSWORD" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+            echo
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - run: npm ci
+
+      - name: Build and publish GitHub Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          releaseName: "Nexttorrent ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          releaseBody: "Download the installer assets below."
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: --bundles nsis,msi
