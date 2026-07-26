@@ -31,7 +31,7 @@
     },
     "updater": {
       "endpoints": [
-        "https://github.com/nexttorrent/nexttorrent/releases/latest/download/latest.json"
+        "https://github.com/rattaroaz/nexttorrent/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCNjI4NzQxOTFBMzM5MDUKUldRRk9hT1JRWWRpR3l4NVZkVEROT3h2enNVR1pnZ2NxTERkNXRPT0I5RU5WTnh0R0EvOUNJVHIK",
       "windows": {
