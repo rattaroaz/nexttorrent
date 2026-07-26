@@ -204,18 +204,13 @@ impl Default for NexttorrentSettings {
 }
 
 impl NexttorrentSettings {
-    pub fn limits_config_for_info_hash(
-        &self,
-        info_hash: &str,
-    ) -> librqbit::limits::LimitsConfig {
+    pub fn limits_config_for_info_hash(&self, info_hash: &str) -> librqbit::limits::LimitsConfig {
         use std::num::NonZeroU32;
 
         self.per_torrent_limits_by_info_hash
             .get(info_hash)
             .map(|l| librqbit::limits::LimitsConfig {
-                download_bps: l
-                    .download_limit_bps
-                    .and_then(|v| NonZeroU32::new(v)),
+                download_bps: l.download_limit_bps.and_then(|v| NonZeroU32::new(v)),
                 upload_bps: l.upload_limit_bps.and_then(|v| NonZeroU32::new(v)),
             })
             .unwrap_or_default()

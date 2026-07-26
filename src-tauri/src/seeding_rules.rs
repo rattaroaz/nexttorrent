@@ -37,10 +37,7 @@ pub fn save_seeding_started(path: &Path, map: &HashMap<String, u64>) -> std::io:
 }
 
 /// Track when torrents first reach finished state; pause when limits exceeded.
-pub async fn apply_seeding_rules(
-    state: &AppState,
-    seeding_started: &mut HashMap<String, u64>,
-) {
+pub async fn apply_seeding_rules(state: &AppState, seeding_started: &mut HashMap<String, u64>) {
     let settings: NexttorrentSettings = state.settings.read().clone();
     let ratio_limit = settings.seed_ratio_limit;
     let time_limit_secs = settings
@@ -63,10 +60,9 @@ pub async fn apply_seeding_rules(
         let Some(stats) = &t.stats else {
             continue;
         };
-        let key = t
-            .id
-            .map(|i| i.to_string())
-            .unwrap_or_else(|| t.info_hash.clone());
+        let key =
+            t.id.map(|i| i.to_string())
+                .unwrap_or_else(|| t.info_hash.clone());
 
         if !stats.finished || !matches!(stats.state, TorrentStatsState::Live) {
             if seeding_started.remove(&key).is_some() {

@@ -63,21 +63,9 @@ pub fn export_configuration_bundle(state: &AppState, dest_zip: &Path) -> Result<
     let mut zip = ZipWriter::new(file);
 
     add_file_to_zip(&mut zip, SETTINGS_ENTRY, &state.settings_path)?;
-    add_file_to_zip(
-        &mut zip,
-        WATCH_PROCESSED_ENTRY,
-        &state.watch_processed_path,
-    )?;
-    add_file_to_zip(
-        &mut zip,
-        SEEDING_STARTED_ENTRY,
-        &state.seeding_started_path,
-    )?;
-    add_dir_to_zip(
-        &mut zip,
-        RQBIT_DIR_PREFIX,
-        &state.rqbit_persistence_dir,
-    )?;
+    add_file_to_zip(&mut zip, WATCH_PROCESSED_ENTRY, &state.watch_processed_path)?;
+    add_file_to_zip(&mut zip, SEEDING_STARTED_ENTRY, &state.seeding_started_path)?;
+    add_dir_to_zip(&mut zip, RQBIT_DIR_PREFIX, &state.rqbit_persistence_dir)?;
 
     zip.finish().map_err(|e| e.to_string())?;
     Ok(())
@@ -94,16 +82,15 @@ fn extract_zip_entry(
     if name.ends_with('/') {
         return Ok(());
     }
-    let out: PathBuf = if name == SETTINGS_ENTRY
-        || name == WATCH_PROCESSED_ENTRY
-        || name == SEEDING_STARTED_ENTRY
-    {
-        config_dir.join(name)
-    } else if let Some(rel) = name.strip_prefix(RQBIT_DIR_PREFIX) {
-        cache_dir.join("rqbit-session").join(rel)
-    } else {
-        return Ok(());
-    };
+    let out: PathBuf =
+        if name == SETTINGS_ENTRY || name == WATCH_PROCESSED_ENTRY || name == SEEDING_STARTED_ENTRY
+        {
+            config_dir.join(name)
+        } else if let Some(rel) = name.strip_prefix(RQBIT_DIR_PREFIX) {
+            cache_dir.join("rqbit-session").join(rel)
+        } else {
+            return Ok(());
+        };
     if let Some(parent) = out.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -184,10 +171,8 @@ mod tests {
 
     #[test]
     fn export_import_roundtrip_restores_settings() {
-        let tmp = std::env::temp_dir().join(format!(
-            "nexttorrent-backup-test-{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("nexttorrent-backup-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 

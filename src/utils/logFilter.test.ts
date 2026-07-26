@@ -14,9 +14,9 @@ describe("logFilter", () => {
     expect(inferLineSeverity("INFO crate::foo — started")).toBe("info");
     expect(inferLineSeverity("WARN crate::foo — slow")).toBe("warn");
     expect(inferLineSeverity("ERROR crate::foo — failed")).toBe("error");
-    expect(
-      inferLineSeverity("2025-01-01T12:00:00.000 ! cmd — oops"),
-    ).toBe("error");
+    expect(inferLineSeverity("2025-01-01T12:00:00.000 ! cmd — oops")).toBe(
+      "error",
+    );
     expect(inferLineSeverity("12:00:00 — Added magnet")).toBe("info");
     expect(inferLineSeverity("=== Session ===")).toBeNull();
   });
@@ -34,9 +34,9 @@ describe("logFilter", () => {
     expect(inferLineSeverity("3:04:05 PM — Add magnet failed: bad uri")).toBe(
       "error",
     );
-    expect(inferLineSeverity("12:00:00 — Load peer stats failed: timeout")).toBe(
-      "error",
-    );
+    expect(
+      inferLineSeverity("12:00:00 — Load peer stats failed: timeout"),
+    ).toBe("error");
     expect(inferLineSeverity("12:00:00 — disk error while writing")).toBe(
       "error",
     );
@@ -79,7 +79,10 @@ describe("logFilter", () => {
     ];
     expect(shouldShowSessionFile(ring, file)).toBe(false);
     expect(
-      shouldShowSessionFile(ring, [...file, "2026-01-01T00:00:02.000 INFO a — only on disk"]),
+      shouldShowSessionFile(ring, [
+        ...file,
+        "2026-01-01T00:00:02.000 INFO a — only on disk",
+      ]),
     ).toBe(true);
   });
 

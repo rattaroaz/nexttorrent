@@ -39,50 +39,54 @@ export function e2eSaveCalls(): NexttorrentSettings[] {
 export function installE2eMocks(): void {
   mockIPC(
     (cmd, args) => {
-    switch (cmd) {
-      case "get_session_snapshot":
-        return {
-          downloadDir: "/downloads",
-          effectiveDownloadDir: "/downloads",
-          configDir: "/config",
-          cacheDir: "/cache",
-          logFilter: "info",
-          rqbitVersion: "8.1.1",
-        };
-      case "get_nexttorrent_settings":
-        return { ...settingsStore };
-      case "save_nexttorrent_settings": {
-        const next = (args as { settings: NexttorrentSettings }).settings;
-        settingsStore = { ...next };
-        saveCalls.push({ ...next });
-        return null;
+      switch (cmd) {
+        case "get_session_snapshot":
+          return {
+            downloadDir: "/downloads",
+            effectiveDownloadDir: "/downloads",
+            configDir: "/config",
+            cacheDir: "/cache",
+            logFilter: "info",
+            rqbitVersion: "8.1.1",
+          };
+        case "get_nexttorrent_settings":
+          return { ...settingsStore };
+        case "save_nexttorrent_settings": {
+          const next = (args as { settings: NexttorrentSettings }).settings;
+          settingsStore = { ...next };
+          saveCalls.push({ ...next });
+          return null;
+        }
+        case "torrent_build_update_payload":
+          return emptyPayload;
+        case "torrent_add_magnet": {
+          const magnet = (args as { magnet: string }).magnet;
+          magnetCalls.push(magnet);
+          return {
+            id: 1,
+            details: {
+              info_hash: "a".repeat(40),
+              name: "E2E magnet",
+              output_folder: "/downloads",
+            },
+          };
+        }
+        case "open_logs_folder":
+          return "C:\\mock\\config";
+        case "get_activity_log":
+          return {
+            traceLines: ["INFO e2e — mock trace"],
+            diagFileLines: [],
+            sessionFileLines: [],
+          };
+        case "list_network_interfaces":
+          return [{ name: "eth0", receivedBytes: 0, transmittedBytes: 0 }];
+        default:
+          return null;
       }
-      case "torrent_build_update_payload":
-        return emptyPayload;
-      case "torrent_add_magnet": {
-        const magnet = (args as { magnet: string }).magnet;
-        magnetCalls.push(magnet);
-        return {
-          id: 1,
-          details: {
-            info_hash: "a".repeat(40),
-            name: "E2E magnet",
-            output_folder: "/downloads",
-          },
-        };
-      }
-      case "open_logs_folder":
-        return "C:\\mock\\config";
-      case "get_activity_log":
-        return { traceLines: ["INFO e2e — mock trace"], diagFileLines: [], sessionFileLines: [] };
-      case "list_network_interfaces":
-        return [{ name: "eth0", receivedBytes: 0, transmittedBytes: 0 }];
-      default:
-        return null;
-    }
-  },
-  { shouldMockEvents: true },
-);
+    },
+    { shouldMockEvents: true },
+  );
 }
 
 // Expose for Playwright assertions

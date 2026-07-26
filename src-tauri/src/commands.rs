@@ -19,9 +19,8 @@ pub fn build_session_snapshot<R: tauri::Runtime>(
 ) -> Result<SessionSnapshot, PathError> {
     let paths = paths::app_paths(app)?;
     let effective = settings.resolved_download_dir(&paths);
-    let log_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| {
-        "info,librqbit=warn,librqbit_core=warn".to_string()
-    });
+    let log_filter = std::env::var("RUST_LOG")
+        .unwrap_or_else(|_| "info,librqbit=warn,librqbit_core=warn".to_string());
 
     Ok(SessionSnapshot {
         download_dir: path_buf_to_string(paths.download_dir.clone())?,
@@ -51,7 +50,10 @@ pub fn quit_app(app: AppHandle) {
 }
 
 #[tauri::command]
-pub fn get_activity_log(app: AppHandle, max_lines: Option<usize>) -> Result<crate::diag_log::ActivityLogSnapshot, String> {
+pub fn get_activity_log(
+    app: AppHandle,
+    max_lines: Option<usize>,
+) -> Result<crate::diag_log::ActivityLogSnapshot, String> {
     let paths = paths::app_paths(&app).map_err(|e| e.to_string())?;
     let n = max_lines.unwrap_or(200).clamp(10, 500);
     Ok(crate::diag_log::activity_log_snapshot(&paths.config_dir, n))

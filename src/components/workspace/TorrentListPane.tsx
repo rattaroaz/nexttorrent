@@ -261,7 +261,9 @@ export function TorrentListPane({
                 awaitingMetadata:
                   !stats?.finished &&
                   (total === 0 ||
-                    (stats?.state ?? "").toLowerCase().includes("initializing")),
+                    (stats?.state ?? "")
+                      .toLowerCase()
+                      .includes("initializing")),
                 peerCount,
               });
               return (

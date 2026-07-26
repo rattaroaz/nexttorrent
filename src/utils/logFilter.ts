@@ -18,10 +18,7 @@ export const LOG_LEVEL_OPTIONS: { value: LogLevelFilter; label: string }[] = [
 /** Strip leading ISO-ish timestamps so severity tokens can be matched. */
 export function stripLeadingTimestamp(line: string): string {
   // 2026-07-09T12:34:56.789 or 2026-07-09T12:34:56
-  return line.replace(
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+/,
-    "",
-  );
+  return line.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+/, "");
 }
 
 /** Infer severity from a backend trace line, UI session line, or diag entry. */
@@ -74,7 +71,10 @@ function severityRank(severity: "info" | "warn" | "error"): number {
   return severity === "info" ? 0 : severity === "warn" ? 1 : 2;
 }
 
-export function lineMatchesLevel(line: string, filter: LogLevelFilter): boolean {
+export function lineMatchesLevel(
+  line: string,
+  filter: LogLevelFilter,
+): boolean {
   if (filter === "all") {
     return true;
   }
@@ -85,8 +85,7 @@ export function lineMatchesLevel(line: string, filter: LogLevelFilter): boolean 
   if (severity === null) {
     return false;
   }
-  const minRank =
-    filter === "info" ? 0 : filter === "warn" ? 1 : /* error */ 2;
+  const minRank = filter === "info" ? 0 : filter === "warn" ? 1 : /* error */ 2;
   return severityRank(severity) >= minRank;
 }
 

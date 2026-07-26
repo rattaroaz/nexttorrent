@@ -41,36 +41,34 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .tooltip("Nexttorrent")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| {
-            match event.id().as_ref() {
-                ID_SHOW => show_main_window(app),
-                ID_PAUSE_ALL => {
-                    let handle = app.clone();
-                    let Some(s) = handle
-                        .try_state::<AppState>()
-                        .map(|state| state.inner().clone())
-                    else {
-                        return;
-                    };
-                    tauri::async_runtime::spawn(async move {
-                        let _ = crate::torrent_commands::pause_all_impl(&s).await;
-                    });
-                }
-                ID_RESUME_ALL => {
-                    let handle = app.clone();
-                    let Some(s) = handle
-                        .try_state::<AppState>()
-                        .map(|state| state.inner().clone())
-                    else {
-                        return;
-                    };
-                    tauri::async_runtime::spawn(async move {
-                        let _ = crate::torrent_commands::resume_all_impl(&s).await;
-                    });
-                }
-                ID_QUIT => app.exit(0),
-                _ => {}
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            ID_SHOW => show_main_window(app),
+            ID_PAUSE_ALL => {
+                let handle = app.clone();
+                let Some(s) = handle
+                    .try_state::<AppState>()
+                    .map(|state| state.inner().clone())
+                else {
+                    return;
+                };
+                tauri::async_runtime::spawn(async move {
+                    let _ = crate::torrent_commands::pause_all_impl(&s).await;
+                });
             }
+            ID_RESUME_ALL => {
+                let handle = app.clone();
+                let Some(s) = handle
+                    .try_state::<AppState>()
+                    .map(|state| state.inner().clone())
+                else {
+                    return;
+                };
+                tauri::async_runtime::spawn(async move {
+                    let _ = crate::torrent_commands::resume_all_impl(&s).await;
+                });
+            }
+            ID_QUIT => app.exit(0),
+            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {

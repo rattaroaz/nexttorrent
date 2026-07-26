@@ -24,7 +24,9 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 describe("isUpdateFeedUnavailable", () => {
   it("detects missing feed errors", () => {
     expect(
-      isUpdateFeedUnavailable("Could not fetch a valid release JSON from the remote"),
+      isUpdateFeedUnavailable(
+        "Could not fetch a valid release JSON from the remote",
+      ),
     ).toBe(true);
     expect(isUpdateFeedUnavailable("failed to fetch endpoint")).toBe(true);
     expect(isUpdateFeedUnavailable("HTTP 404")).toBe(true);
@@ -78,7 +80,9 @@ describe("checkForUpdatesAndApply", () => {
   });
 
   it("maps missing feed errors to setup guidance", async () => {
-    checkMock.mockRejectedValueOnce(new Error("failed to fetch: 404 not found"));
+    checkMock.mockRejectedValueOnce(
+      new Error("failed to fetch: 404 not found"),
+    );
     const { checkForUpdatesAndApply } = await import("./updateService");
     const { getUpdateUiState } = await import("./updateUi");
     await checkForUpdatesAndApply();

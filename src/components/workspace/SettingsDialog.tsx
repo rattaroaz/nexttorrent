@@ -88,9 +88,7 @@ export function SettingsDialog({
           onChange={(e) =>
             setSettingsDraft({
               ...settingsDraft,
-              globalUpLimitBps: e.target.value
-                ? Number(e.target.value)
-                : null,
+              globalUpLimitBps: e.target.value ? Number(e.target.value) : null,
             })
           }
         />
@@ -164,8 +162,8 @@ export function SettingsDialog({
       </label>
       <p className="hint">
         librqbit 8 binds to all interfaces. For VPN-only traffic use a SOCKS5
-        proxy from your VPN client, or OS routing rules. The interface preference
-        is saved for a future engine upgrade.
+        proxy from your VPN client, or OS routing rules. The interface
+        preference is saved for a future engine upgrade.
       </p>
       <label>
         Theme
@@ -218,9 +216,7 @@ export function SettingsDialog({
           onChange={(e) =>
             setSettingsDraft({
               ...settingsDraft,
-              maxActiveUploads: e.target.value
-                ? Number(e.target.value)
-                : null,
+              maxActiveUploads: e.target.value ? Number(e.target.value) : null,
             })
           }
         />
@@ -474,9 +470,9 @@ export function SettingsDialog({
 
       <h4 className="settings-section">RSS feeds</h4>
       <p className="hint">
-        RSS 2.0 or Torznab/Jackett feeds. Use title/quality filters and
-        category → save-path lines (e.g. <code>movies=D:\Movies</code>). Enable
-        “auto add” for background polling (~15 min).
+        RSS 2.0 or Torznab/Jackett feeds. Use title/quality filters and category
+        → save-path lines (e.g. <code>movies=D:\Movies</code>). Enable “auto
+        add” for background polling (~15 min).
       </p>
       {settingsDraft.rssFeeds.map((feed, idx) => (
         <div key={feed.id} className="rss-feed-card">
@@ -648,7 +644,9 @@ export function SettingsDialog({
         Add RSS feed
       </button>
 
-      <h4 className="settings-section settings-section-spaced">Watch folders</h4>
+      <h4 className="settings-section settings-section-spaced">
+        Watch folders
+      </h4>
       <p className="hint">
         Absolute paths, one per line. Scanned every ~2 minutes.
       </p>
@@ -667,8 +665,8 @@ export function SettingsDialog({
       />
 
       <p className="hint">
-        Listen ports and proxy changes may require restarting the app to take full
-        effect in the engine.
+        Listen ports and proxy changes may require restarting the app to take
+        full effect in the engine.
       </p>
       <div className="modal-actions">
         <button

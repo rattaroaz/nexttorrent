@@ -95,7 +95,9 @@ export function useTorrentWorkspace() {
   const [labelColorHex, setLabelColorHex] = useState("#60a5fa");
   const [filterQuery, setFilterQuery] = useState("");
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
-  const [selectedRefs, setSelectedRefs] = useState<Set<string>>(() => new Set());
+  const [selectedRefs, setSelectedRefs] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [liveStats, setLiveStats] = useState<Record<string, unknown> | null>(
     null,
   );
@@ -401,7 +403,9 @@ export function useTorrentWorkspace() {
     void getTorrentBandwidthLimits(selectedRow.info_hash)
       .then((limits) => {
         setPerTorrentDownLimit(
-          limits.downloadLimitBps != null ? String(limits.downloadLimitBps) : "",
+          limits.downloadLimitBps != null
+            ? String(limits.downloadLimitBps)
+            : "",
         );
         setPerTorrentUpLimit(
           limits.uploadLimitBps != null ? String(limits.uploadLimitBps) : "",
@@ -997,7 +1001,11 @@ export function useTorrentWorkspace() {
     if (labelOk === undefined) {
       return;
     }
-    const base = await runLogged("Reload settings", log, getNexttorrentSettings);
+    const base = await runLogged(
+      "Reload settings",
+      log,
+      getNexttorrentSettings,
+    );
     if (!base) {
       return;
     }

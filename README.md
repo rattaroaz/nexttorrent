@@ -26,13 +26,13 @@ npm run tauri dev
 
 Useful scripts:
 
-| Script | Purpose |
-|--------|---------|
-| `npm test` | Vitest unit tests |
-| `npm run typecheck` | TypeScript check |
-| `npm run lint` | ESLint |
-| `npm run build:msi` | Windows MSI via Tauri |
-| `npm run build:msix` | Windows MSIX package |
+| Script               | Purpose               |
+| -------------------- | --------------------- |
+| `npm test`           | Vitest unit tests     |
+| `npm run typecheck`  | TypeScript check      |
+| `npm run lint`       | ESLint                |
+| `npm run build:msi`  | Windows MSI via Tauri |
+| `npm run build:msix` | Windows MSIX package  |
 
 See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for installers, networking, RSS, and diagnostics.
 

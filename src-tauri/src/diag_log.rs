@@ -58,12 +58,7 @@ pub fn stamp_line(line: impl AsRef<str>) -> String {
 fn looks_timestamped(line: &str) -> bool {
     // 2026-07-09T12:34:56.789
     let b = line.as_bytes();
-    b.len() >= 23
-        && b[4] == b'-'
-        && b[7] == b'-'
-        && b[10] == b'T'
-        && b[13] == b':'
-        && b[16] == b':'
+    b.len() >= 23 && b[4] == b'-' && b[7] == b'-' && b[10] == b'T' && b[13] == b':' && b[16] == b':'
 }
 
 /// Called as early as possible (and again when Tauri resolves AppConfig) so session
@@ -79,10 +74,7 @@ pub fn set_config_dir(dir: PathBuf) {
 }
 
 pub fn config_dir() -> Option<PathBuf> {
-    config_dir_slot()
-        .lock()
-        .expect("config dir lock")
-        .clone()
+    config_dir_slot().lock().expect("config dir lock").clone()
 }
 
 fn ensure_writer_started() {

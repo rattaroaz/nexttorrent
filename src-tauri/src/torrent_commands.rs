@@ -543,10 +543,7 @@ async fn apply_bandwidth_limits_to_running(
     };
     let resp = state
         .api
-        .api_add_torrent(
-            AddTorrent::TorrentFileBytes(torrent_bytes),
-            Some(opts),
-        )
+        .api_add_torrent(AddTorrent::TorrentFileBytes(torrent_bytes), Some(opts))
         .await
         .map_err(|err| map_cmd_err(state, "set_torrent_bandwidth_limits", err.to_string()))?;
     attach_sequential_if_enabled(state, &torrent_ref_from_add_response(&resp));
@@ -784,7 +781,8 @@ pub(crate) async fn rss_poll_feeds_impl(state: &AppState) -> Result<RssPollResul
                             messages.push(e);
                             continue;
                         }
-                        let info_hash = match crate::validation::info_hash_hex_from_magnet(&magnet) {
+                        let info_hash = match crate::validation::info_hash_hex_from_magnet(&magnet)
+                        {
                             Ok(h) => h,
                             Err(e) => {
                                 messages.push(e);

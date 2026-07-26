@@ -177,8 +177,8 @@ export function TorrentWorkspace() {
             : ""}
         </span>
         <span>
-          Session:{" "}
-          {ws.session ? formatBytes(ws.session.fetched_bytes) : "—"} fetched
+          Session: {ws.session ? formatBytes(ws.session.fetched_bytes) : "—"}{" "}
+          fetched
           {ws.session
             ? ` · ${formatBytes(ws.session.uploaded_bytes)} sent`
             : ""}

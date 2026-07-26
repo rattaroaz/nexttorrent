@@ -27,9 +27,7 @@ function titleForPhase(phase: UpdateDialogPhase): string {
 
 function isBusy(phase: UpdateDialogPhase): boolean {
   return (
-    phase === "checking" ||
-    phase === "downloading" ||
-    phase === "installing"
+    phase === "checking" || phase === "downloading" || phase === "installing"
   );
 }
 

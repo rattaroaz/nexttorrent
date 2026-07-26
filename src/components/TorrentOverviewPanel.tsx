@@ -45,8 +45,7 @@ export function TorrentOverviewPanel({
   const downMbps = liveStats?.download_speed?.mbps ?? 0;
   const upMbps = liveStats?.upload_speed?.mbps ?? 0;
   const down = mbpsToBps(downMbps);
-  const eta =
-    down > 0 && total > prog ? (total - prog) / down : null;
+  const eta = down > 0 && total > prog ? (total - prog) / down : null;
   const peers = liveStats?.snapshot?.peer_stats;
 
   const peerCount = peers

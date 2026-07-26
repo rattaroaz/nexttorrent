@@ -46,8 +46,8 @@ fn init_tracing() {
     // Persist session lines ASAP using the OS config fallback; setup() may refine the path.
     crate::diag_log::set_config_dir(crate::startup_fail::fallback_config_dir());
 
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
     let _ignored = tracing_subscriber::registry()
         .with(filter)
         .with(tracing_subscriber::fmt::layer())

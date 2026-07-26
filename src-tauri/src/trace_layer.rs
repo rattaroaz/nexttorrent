@@ -77,9 +77,7 @@ mod tests {
 
     #[test]
     fn captures_warn_level_events() {
-        let _guard = Registry::default()
-            .with(ActivityTraceLayer)
-            .set_default();
+        let _guard = Registry::default().with(ActivityTraceLayer).set_default();
 
         diag_log::push_trace_line("reset-marker".into());
         let before = diag_log::recent_trace_lines(500).len();
@@ -88,6 +86,8 @@ mod tests {
 
         let lines = diag_log::recent_trace_lines(500);
         assert!(lines.len() > before);
-        assert!(lines.iter().any(|l| l.contains("WARN") && l.contains("something failed")));
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("WARN") && l.contains("something failed")));
     }
 }

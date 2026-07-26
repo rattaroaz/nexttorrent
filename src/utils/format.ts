@@ -103,7 +103,11 @@ export function formatTorrentState(
   if (raw.includes("queued")) {
     return { label: "Queued", tone: "queued" };
   }
-  if (raw.includes("checking") || raw.includes("hash") || raw.includes("verify")) {
+  if (
+    raw.includes("checking") ||
+    raw.includes("hash") ||
+    raw.includes("verify")
+  ) {
     return { label: "Checking", tone: "queued" };
   }
   if (finished || raw.includes("seed")) {

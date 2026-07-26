@@ -222,14 +222,10 @@ export async function exportConfigurationBundle(
   return invoke(IPC_COMMANDS.exportConfigurationBundle, { destZip });
 }
 
-export async function importConfigurationBundle(
-  srcZip: string,
-): Promise<void> {
+export async function importConfigurationBundle(srcZip: string): Promise<void> {
   return invoke(IPC_COMMANDS.importConfigurationBundle, { srcZip });
 }
 
-export async function listNetworkInterfaces(): Promise<
-  NetworkInterfaceInfo[]
-> {
+export async function listNetworkInterfaces(): Promise<NetworkInterfaceInfo[]> {
   return invoke(IPC_COMMANDS.listNetworkInterfaces);
 }

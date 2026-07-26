@@ -80,11 +80,11 @@ Configure `plugins.updater.pubkey` and `endpoints` in `src-tauri/tauri.conf.json
 
 Nexttorrent keeps several log surfaces for troubleshooting:
 
-| Location | Purpose |
-|----------|---------|
-| **Logs** side panel / **Activity** tab | UI session messages plus live backend trace lines |
-| **`nexttorrent.log`** (config dir) | Persistent INFO/WARN/ERROR session log (batched writes; timestamps) |
-| **`nexttorrent-diag.log`** (config dir) | Command failures and fatal startup errors |
+| Location                                | Purpose                                                             |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| **Logs** side panel / **Activity** tab  | UI session messages plus live backend trace lines                   |
+| **`nexttorrent.log`** (config dir)      | Persistent INFO/WARN/ERROR session log (batched writes; timestamps) |
+| **`nexttorrent-diag.log`** (config dir) | Command failures and fatal startup errors                           |
 
 Default Rust filter is `info,librqbit=warn,librqbit_core=warn` so engine chatter stays out of the activity log. Override with the `RUST_LOG` environment variable (for example `RUST_LOG=librqbit=debug`).
 

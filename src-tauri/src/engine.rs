@@ -28,9 +28,7 @@ pub fn default_public_trackers() -> HashSet<Url> {
         "http://tracker.openbittorrent.com:80/announce",
         "http://tracker.opentrackr.org:1337/announce",
     ];
-    URLS.iter()
-        .filter_map(|s| Url::parse(s).ok())
-        .collect()
+    URLS.iter().filter_map(|s| Url::parse(s).ok()).collect()
 }
 
 pub async fn create_session(

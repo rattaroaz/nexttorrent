@@ -20,17 +20,20 @@ export type SortKey =
 
 export type SortDir = "asc" | "desc";
 
-export const SORT_COLUMNS: Array<{ key: SortKey; label: string; numeric?: boolean }> =
-  [
-    { key: "name", label: "Name" },
-    { key: "progress", label: "Progress", numeric: true },
-    { key: "size", label: "Size", numeric: true },
-    { key: "eta", label: "ETA", numeric: true },
-    { key: "down", label: "Down", numeric: true },
-    { key: "up", label: "Up", numeric: true },
-    { key: "ratio", label: "Ratio", numeric: true },
-    { key: "state", label: "State" },
-  ];
+export const SORT_COLUMNS: Array<{
+  key: SortKey;
+  label: string;
+  numeric?: boolean;
+}> = [
+  { key: "name", label: "Name" },
+  { key: "progress", label: "Progress", numeric: true },
+  { key: "size", label: "Size", numeric: true },
+  { key: "eta", label: "ETA", numeric: true },
+  { key: "down", label: "Down", numeric: true },
+  { key: "up", label: "Up", numeric: true },
+  { key: "ratio", label: "Ratio", numeric: true },
+  { key: "state", label: "State" },
+];
 
 export function torrentRef(row: TorrentRow): string {
   if (row.id != null) {

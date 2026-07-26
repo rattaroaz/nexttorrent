@@ -1,8 +1,5 @@
 import { ActivityLogPanel } from "./ActivityLogPanel";
-import {
-  LOG_LEVEL_OPTIONS,
-  type LogLevelFilter,
-} from "../../utils/logFilter";
+import { LOG_LEVEL_OPTIONS, type LogLevelFilter } from "../../utils/logFilter";
 
 type Props = {
   sessionLines: string[];

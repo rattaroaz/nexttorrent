@@ -53,11 +53,7 @@ fn quality_keywords(filter: &Option<String>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub fn item_passes_filters(
-    feed: &RssFeedEntry,
-    title: &str,
-    category: Option<&str>,
-) -> bool {
+pub fn item_passes_filters(feed: &RssFeedEntry, title: &str, category: Option<&str>) -> bool {
     let title_lc = title.to_ascii_lowercase();
     if let Some(re) = compile_opt_regex(&feed.title_regex) {
         if !re.is_match(title) {
@@ -106,7 +102,12 @@ fn torznab_request_url(feed: &RssFeedEntry) -> String {
         url.push_str("t=search");
         sep = '&';
     }
-    if let Some(key) = feed.api_key.as_ref().map(|k| k.trim()).filter(|k| !k.is_empty()) {
+    if let Some(key) = feed
+        .api_key
+        .as_ref()
+        .map(|k| k.trim())
+        .filter(|k| !k.is_empty())
+    {
         if !base.contains("apikey=") {
             url.push(sep);
             url.push_str("apikey=");
@@ -117,9 +118,7 @@ fn torznab_request_url(feed: &RssFeedEntry) -> String {
 }
 
 fn item_category(item: &rss::Item) -> Option<String> {
-    item.categories()
-        .first()
-        .map(|c| c.name().to_string())
+    item.categories().first().map(|c| c.name().to_string())
 }
 
 fn item_id(item: &rss::Item) -> String {

@@ -133,7 +133,10 @@ export function AddTorrentDialog({
           <p className="hint">Selected file</p>
           <code className="pending-path">{pendingTorrentPath}</code>
           <div className="modal-actions">
-            <button type="button" onClick={() => void onConfirmAddTorrentFile()}>
+            <button
+              type="button"
+              onClick={() => void onConfirmAddTorrentFile()}
+            >
               Add to session
             </button>
             <button type="button" onClick={() => void onPickTorrentFile()}>

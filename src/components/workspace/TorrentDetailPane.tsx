@@ -193,10 +193,7 @@ export function TorrentDetailPane({
               >
                 Open folder
               </button>
-              <button
-                type="button"
-                onClick={() => void onRemove(false)}
-              >
+              <button type="button" onClick={() => void onRemove(false)}>
                 Remove
               </button>
               <button
@@ -342,7 +339,10 @@ export function TorrentDetailPane({
               <pre className="piece-dump">{pieceDump ?? "…"}</pre>
             )}
             {tab === "activity" && (
-              <ActivityLogPanel sessionLines={activity} active={tab === "activity"} />
+              <ActivityLogPanel
+                sessionLines={activity}
+                active={tab === "activity"}
+              />
             )}
           </div>
         </>

@@ -19,7 +19,9 @@ export function TorrentPeersPanel({ peerDump }: Props) {
     return <p className="muted">No live peers.</p>;
   }
 
-  const entries = Object.entries(peerDump).sort(([a], [b]) => a.localeCompare(b));
+  const entries = Object.entries(peerDump).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
 
   return (
     <div className="table-scroll-inner">

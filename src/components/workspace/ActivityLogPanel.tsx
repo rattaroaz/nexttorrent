@@ -78,10 +78,7 @@ export function ActivityLogPanel({
   );
 
   return (
-    <pre
-      className={className ?? "activity-log"}
-      data-testid="activity-log"
-    >
+    <pre className={className ?? "activity-log"} data-testid="activity-log">
       {text}
     </pre>
   );

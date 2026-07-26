@@ -8,10 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const libRs = fs.readFileSync(
-  path.join(root, "src-tauri/src/lib.rs"),
-  "utf8",
-);
+const libRs = fs.readFileSync(path.join(root, "src-tauri/src/lib.rs"), "utf8");
 const contractsTs = fs.readFileSync(
   path.join(root, "src/ipc/contracts.ts"),
   "utf8",
@@ -58,9 +55,9 @@ if (missingInTs.length || missingInRust.length) {
   process.exit(1);
 }
 
-const clientExports = [...clientTs.matchAll(/export async function (\w+)/g)].map(
-  (m) => m[1],
-);
+const clientExports = [
+  ...clientTs.matchAll(/export async function (\w+)/g),
+].map((m) => m[1]);
 
 const commandKeys = [...commandsBlock[1].matchAll(/^\s+(\w+):\s*"/gm)].map(
   (m) => m[1],
@@ -73,7 +70,9 @@ const EXPORT_OVERRIDES = {
 const camelToExport = (key) => EXPORT_OVERRIDES[key] ?? key;
 
 const exportSet = new Set(clientExports);
-const missingClient = commandKeys.filter((k) => !exportSet.has(camelToExport(k)));
+const missingClient = commandKeys.filter(
+  (k) => !exportSet.has(camelToExport(k)),
+);
 
 if (missingClient.length) {
   console.error(

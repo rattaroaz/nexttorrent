@@ -43,9 +43,9 @@ describe("ratioString", () => {
 
 describe("formatTorrentState", () => {
   it("maps common states", () => {
-    expect(formatTorrentState("live", { finished: false, peerCount: 3 }).label).toBe(
-      "Downloading",
-    );
+    expect(
+      formatTorrentState("live", { finished: false, peerCount: 3 }).label,
+    ).toBe("Downloading");
     expect(formatTorrentState("live", { finished: true }).label).toBe(
       "Seeding",
     );
@@ -63,8 +63,8 @@ describe("formatTorrentState", () => {
     expect(
       formatTorrentState("live", { finished: false, peerCount: 0 }).label,
     ).toBe("Connecting");
-    expect(
-      formatTorrentState("live", { awaitingMetadata: true }).label,
-    ).toBe("Fetching metadata");
+    expect(formatTorrentState("live", { awaitingMetadata: true }).label).toBe(
+      "Fetching metadata",
+    );
   });
 });
