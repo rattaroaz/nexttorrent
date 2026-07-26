@@ -14,6 +14,8 @@ import {
   torrentPause,
   torrentRemove,
   torrentUpdateOnlyFiles,
+  updaterCheckFeed,
+  updaterDownloadAndInstall,
 } from "./client";
 import { IPC_COMMANDS } from "./contracts";
 
@@ -95,5 +97,31 @@ describe("ipc invoke payloads (camelCase for Tauri 2)", () => {
     vi.mocked(core.invoke).mockResolvedValue(undefined);
     await quitApp();
     expect(core.invoke).toHaveBeenCalledWith(IPC_COMMANDS.quitApp);
+  });
+
+  it("updaterCheckFeed invokes without payload", async () => {
+    vi.mocked(core.invoke).mockResolvedValue({
+      status: "up_to_date",
+      installedVersion: "1.1.1",
+    });
+    await updaterCheckFeed();
+    expect(core.invoke).toHaveBeenCalledWith(IPC_COMMANDS.updaterCheckFeed);
+  });
+
+  it("updaterDownloadAndInstall passes camelCase keys", async () => {
+    vi.mocked(core.invoke).mockResolvedValue(undefined);
+    await updaterDownloadAndInstall(
+      "https://example.com/setup.exe",
+      "sig",
+      "1.2.0",
+    );
+    expect(core.invoke).toHaveBeenCalledWith(
+      IPC_COMMANDS.updaterDownloadAndInstall,
+      {
+        downloadUrl: "https://example.com/setup.exe",
+        signature: "sig",
+        version: "1.2.0",
+      },
+    );
   });
 });
