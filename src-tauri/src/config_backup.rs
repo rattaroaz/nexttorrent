@@ -139,8 +139,10 @@ mod tests {
         std::fs::create_dir_all(&download).unwrap();
 
         let settings_path = config_dir.join("settings.json");
-        let mut settings = NexttorrentSettings::default();
-        settings.theme = "backup-roundtrip".into();
+        let settings = NexttorrentSettings {
+            theme: "backup-roundtrip".into(),
+            ..Default::default()
+        };
         crate::settings::save_settings(&settings_path, &settings).unwrap();
 
         let rqbit_persistence_dir = cache_dir.join("rqbit-session");
@@ -180,8 +182,10 @@ mod tests {
         let zip_path = tmp.join("bundle.zip");
         export_configuration_bundle(&state, &zip_path).unwrap();
 
-        let mut overwritten = NexttorrentSettings::default();
-        overwritten.theme = "overwritten".into();
+        let overwritten = NexttorrentSettings {
+            theme: "overwritten".into(),
+            ..Default::default()
+        };
         crate::settings::save_settings(&state.settings_path, &overwritten).unwrap();
 
         let config_dir = tmp.join("config");

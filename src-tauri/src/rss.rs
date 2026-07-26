@@ -27,8 +27,11 @@ pub(crate) fn extract_magnets_from_text(s: &str) -> Vec<String> {
 
 #[derive(Debug, Clone)]
 pub struct FeedMatch {
+    #[allow(dead_code)]
     pub id: String,
+    #[allow(dead_code)]
     pub title: String,
+    #[allow(dead_code)]
     pub category: Option<String>,
     pub magnets: Vec<String>,
     pub output_folder: Option<String>,

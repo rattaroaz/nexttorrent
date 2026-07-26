@@ -36,17 +36,12 @@ pub struct SpeedScheduler {
     pub slots: Vec<SpeedSchedulerSlot>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RssFeedKind {
+    #[default]
     Rss,
     Torznab,
-}
-
-impl Default for RssFeedKind {
-    fn default() -> Self {
-        Self::Rss
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,8 +205,8 @@ impl NexttorrentSettings {
         self.per_torrent_limits_by_info_hash
             .get(info_hash)
             .map(|l| librqbit::limits::LimitsConfig {
-                download_bps: l.download_limit_bps.and_then(|v| NonZeroU32::new(v)),
-                upload_bps: l.upload_limit_bps.and_then(|v| NonZeroU32::new(v)),
+                download_bps: l.download_limit_bps.and_then(NonZeroU32::new),
+                upload_bps: l.upload_limit_bps.and_then(NonZeroU32::new),
             })
             .unwrap_or_default()
     }
