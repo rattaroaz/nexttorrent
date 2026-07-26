@@ -40,6 +40,8 @@ const COMMAND_TO_EXPORT: Record<string, keyof typeof client> = {
   [IPC_COMMANDS.watchPoll]: "watchPoll",
   [IPC_COMMANDS.getActivityLog]: "getActivityLog",
   [IPC_COMMANDS.openLogsFolder]: "openLogsFolder",
+  [IPC_COMMANDS.updaterCheckFeed]: "updaterCheckFeed",
+  [IPC_COMMANDS.updaterDownloadAndInstall]: "updaterDownloadAndInstall",
 };
 
 describe("client exports", () => {
