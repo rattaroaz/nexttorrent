@@ -308,9 +308,7 @@ mod tests {
             }
             if start.elapsed() > timeout {
                 let current = fs::read_to_string(path).unwrap_or_default();
-                panic!(
-                    "timeout waiting for {needle:?} in {path:?}; file contents:\n{current}"
-                );
+                panic!("timeout waiting for {needle:?} in {path:?}; file contents:\n{current}");
             }
             thread::sleep(Duration::from_millis(50));
         }
