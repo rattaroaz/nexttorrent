@@ -275,8 +275,8 @@ pub fn activity_log_snapshot(config_parent: &Path, max_lines: usize) -> Activity
 /// Best-effort: wait for the log writer to drain (used in tests).
 #[cfg(test)]
 pub fn flush_for_test() {
-    // Give the writer thread a chance to process.
-    thread::sleep(Duration::from_millis(300));
+    // Idle timeout is 150ms; wait past a couple of cycles.
+    thread::sleep(Duration::from_millis(400));
 }
 
 #[cfg(test)]
@@ -284,11 +284,36 @@ mod tests {
     use super::*;
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
+
+    /// Serialize tests that mutate the process-wide config dir / writer target.
+    static DISK_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn unique_tmp(label: &str) -> PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("nexttorrent-diag-{label}-{n}"))
+        std::env::temp_dir().join(format!(
+            "nexttorrent-diag-{label}-{}-{n}",
+            std::process::id()
+        ))
+    }
+
+    fn wait_for_file_contains(path: &Path, needle: &str, timeout: Duration) -> String {
+        let start = Instant::now();
+        loop {
+            if let Ok(s) = fs::read_to_string(path) {
+                if s.contains(needle) {
+                    return s;
+                }
+            }
+            if start.elapsed() > timeout {
+                let current = fs::read_to_string(path).unwrap_or_default();
+                panic!(
+                    "timeout waiting for {needle:?} in {path:?}; file contents:\n{current}"
+                );
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
     }
 
     #[test]
@@ -306,6 +331,7 @@ mod tests {
 
     #[test]
     fn append_failure_writes_line() {
+        let _guard = DISK_TEST_LOCK.lock().expect("disk test lock");
         let tmp = unique_tmp("append");
         let _ = fs::create_dir_all(&tmp);
         let path = diag_log_path(&tmp);
@@ -328,34 +354,32 @@ mod tests {
 
     #[test]
     fn push_trace_line_persists_when_config_dir_set() {
+        let _guard = DISK_TEST_LOCK.lock().expect("disk test lock");
         let tmp = unique_tmp("session");
         let _ = fs::create_dir_all(&tmp);
         let log_path = session_log_path(&tmp);
         let _ = fs::remove_file(&log_path);
-        set_config_dir(tmp.clone());
-        push_trace_line("INFO test — hello".into());
-        flush_for_test();
-        let s = fs::read_to_string(&log_path).unwrap();
-        assert!(s.contains("hello"));
+        let marker = format!("hello-persist-{}", now_stamp());
+        set_config_dir(tmp);
+        push_trace_line(format!("INFO test — {marker}"));
+        let s = wait_for_file_contains(&log_path, &marker, Duration::from_secs(3));
         assert!(s.lines().any(looks_timestamped));
     }
 
     #[test]
     fn early_lines_flush_after_config_dir() {
+        let _guard = DISK_TEST_LOCK.lock().expect("disk test lock");
         let tmp = unique_tmp("early");
         let _ = fs::create_dir_all(&tmp);
         let log_path = session_log_path(&tmp);
         let _ = fs::remove_file(&log_path);
-        // Reset is hard with statics; use a unique message.
         let marker = format!("early-marker-{}", now_stamp());
         push_trace_line(format!("INFO test — {marker}"));
         set_config_dir(tmp);
         flush_for_test();
-        // Best-effort: line may already be in pending or channel.
-        let s = fs::read_to_string(&log_path).unwrap_or_default();
-        // Either flushed or still only in ring — ring always has it.
+        // Ring always has it; disk is best-effort under the shared writer.
         let ring = recent_trace_lines(500);
         assert!(ring.iter().any(|l| l.contains(&marker)));
-        let _ = s; // disk is best-effort under shared static writer
+        let _ = log_path;
     }
 }
