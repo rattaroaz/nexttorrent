@@ -1,16 +1,24 @@
+mod cli;
 mod commands;
+mod config_backup;
 mod diag_log;
 mod disk;
 mod engine;
 mod ipc;
+mod magnet_handler;
+mod network;
 mod paths;
 mod queue_control;
 mod rss;
 mod scheduler;
+mod seeding_rules;
+mod sequential;
 mod settings;
 mod startup_fail;
 mod state;
 mod torrent_commands;
+mod trace_layer;
+mod tray;
 mod validation;
 mod watch_folder;
 
@@ -22,16 +30,28 @@ use std::time::Duration;
 use chrono::Local;
 use parking_lot::RwLock;
 use tauri::{Emitter, Manager};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use crate::scheduler::effective_rate_limits;
 use crate::state::AppState;
+use crate::trace_layer::ActivityTraceLayer;
+
+/// Default keeps app INFO visible while quieting chatty engine crates.
+/// Override anytime with `RUST_LOG` (e.g. `RUST_LOG=librqbit=debug,nexttorrent=info`).
+const DEFAULT_LOG_FILTER: &str = "info,librqbit=warn,librqbit_core=warn";
 
 fn init_tracing() {
-    let _ignored = tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
+    // Persist session lines ASAP using the OS config fallback; setup() may refine the path.
+    crate::diag_log::set_config_dir(crate::startup_fail::fallback_config_dir());
+
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
+    let _ignored = tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer())
+        .with(ActivityTraceLayer)
         .try_init();
 }
 
@@ -79,7 +99,9 @@ fn spawn_watch_folder_loop(state: AppState) {
             if bg.settings.read().watch_folders.is_empty() {
                 continue;
             }
-            let _ = crate::torrent_commands::watch_poll_impl(&bg).await;
+            if let Err(e) = crate::torrent_commands::watch_poll_impl(&bg).await {
+                tracing::error!(error = %e, "watch folder poll failed");
+            }
         }
     });
 }
@@ -99,7 +121,17 @@ fn spawn_rss_loop(state: AppState) {
             if !auto {
                 continue;
             }
-            let _ = crate::torrent_commands::rss_poll_feeds_impl(&bg).await;
+            match crate::torrent_commands::rss_poll_feeds_impl(&bg).await {
+                Ok(r) if r.magnets_added > 0 || !r.messages.is_empty() => {
+                    tracing::info!(
+                        magnets_added = r.magnets_added,
+                        messages = r.messages.len(),
+                        "rss auto-poll complete"
+                    );
+                }
+                Err(e) => tracing::error!(error = %e, "rss auto-poll failed"),
+                _ => {}
+            }
         }
     });
 }
@@ -129,6 +161,13 @@ pub fn run() {
     let ctx = tauri::generate_context!();
 
     let app_result = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            let req = magnet_handler::parse_launch_add_request(&argv);
+            magnet_handler::spawn_launch_add_request(app, req);
+        }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -140,6 +179,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let paths = crate::paths::app_paths(app.handle()).map_err(|e| e.to_string())?;
             std::fs::create_dir_all(&paths.config_dir).map_err(|e| e.to_string())?;
+            crate::diag_log::set_config_dir(paths.config_dir.clone());
             std::fs::create_dir_all(&paths.cache_dir).map_err(|e| e.to_string())?;
 
             let settings_path = paths.config_dir.join("settings.json");
@@ -158,6 +198,18 @@ pub fn run() {
             ))
             .map_err(|e| e.to_string())?;
 
+            if let Some(iface) = loaded
+                .bind_interface
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            {
+                tracing::warn!(
+                    interface = %iface,
+                    "bind_interface is saved but librqbit 8 cannot bind sockets to a specific interface; use SOCKS5 through your VPN client or OS routing"
+                );
+            }
+
             let api = Arc::new(librqbit::Api::new(session.clone(), None));
             let settings = Arc::new(RwLock::new(loaded.clone()));
             crate::settings::save_settings(&settings_path, &loaded).map_err(|e| e.to_string())?;
@@ -165,6 +217,12 @@ pub fn run() {
             let watch_processed_path = paths.config_dir.join("watch_processed.json");
             let watch_processed =
                 Arc::new(RwLock::new(load_watch_processed(&watch_processed_path)));
+
+            let seeding_started_path = seeding_rules::seeding_started_path(&paths.config_dir);
+            let seeding_started =
+                Arc::new(RwLock::new(seeding_rules::load_seeding_started(
+                    &seeding_started_path,
+                )));
 
             let http_client = reqwest::Client::builder()
                 .use_rustls_tls()
@@ -181,9 +239,41 @@ pub fn run() {
                 http_client,
                 watch_processed_path,
                 watch_processed,
+                sequential_streams: Arc::new(sequential::SequentialStreams::new()),
+                seeding_started_path,
+                seeding_started,
             };
 
             app.manage(state.clone());
+
+            tray::setup_tray(app.handle()).map_err(|e| e.to_string())?;
+
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                #[cfg(any(
+                    target_os = "linux",
+                    target_os = "windows",
+                    all(debug_assertions, target_os = "macos")
+                ))]
+                {
+                    app.deep_link().register_all().map_err(|e| e.to_string())?;
+                }
+                let deep_handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    let urls: Vec<String> = event.urls().iter().map(|u| u.to_string()).collect();
+                    let magnets: Vec<String> = urls
+                        .into_iter()
+                        .filter(|u| u.starts_with("magnet:"))
+                        .collect();
+                    magnet_handler::spawn_external_magnets(&deep_handle, magnets);
+                });
+            }
+
+            let launch_req = magnet_handler::parse_launch_add_request(
+                &std::env::args().collect::<Vec<_>>(),
+            );
+            magnet_handler::spawn_launch_add_request(&handle, launch_req);
 
             spawn_stats_loop(handle.clone(), state.clone());
             crate::queue_control::spawn_queue_loop(state.clone());
@@ -201,6 +291,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::quit_app,
             commands::get_session_snapshot,
+            commands::get_activity_log,
+            commands::open_logs_folder,
             commands::resolve_download_path,
             torrent_commands::torrent_list_full,
             torrent_commands::torrent_build_update_payload,
@@ -220,8 +312,17 @@ pub fn run() {
             torrent_commands::get_nexttorrent_settings,
             torrent_commands::save_nexttorrent_settings,
             torrent_commands::set_torrent_label,
+            torrent_commands::torrent_trackers,
+            torrent_commands::get_torrent_bandwidth_limits,
+            torrent_commands::set_torrent_bandwidth_limits,
             torrent_commands::export_configuration_paths,
+            torrent_commands::export_configuration_bundle,
+            torrent_commands::import_configuration_bundle,
+            torrent_commands::list_network_interfaces,
             torrent_commands::torrent_pause_all,
+            torrent_commands::torrent_resume_all,
+            torrent_commands::torrent_open_folder,
+            torrent_commands::torrent_reveal_file,
             torrent_commands::rss_poll_feeds,
             torrent_commands::disk_free_bytes,
             torrent_commands::watch_poll,

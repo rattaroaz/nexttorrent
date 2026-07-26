@@ -31,7 +31,8 @@ export function DebugOverlay({ snapshot }: DebugOverlayProps) {
       <div style={{ fontWeight: 600, marginBottom: 6 }}>Dev debug</div>
       <div>Build: {import.meta.env.MODE}</div>
       <div style={{ marginTop: 6 }}>
-        Rust logs follow <code>RUST_LOG</code> (snapshot reports{" "}
+        Rust logs follow <code>RUST_LOG</code> (default{" "}
+        <code>info,librqbit=warn</code>; snapshot reports{" "}
         <code>{snapshot?.logFilter ?? "…"}</code>). rqbit{" "}
         <code>{snapshot?.rqbitVersion ?? "…"}</code>
       </div>

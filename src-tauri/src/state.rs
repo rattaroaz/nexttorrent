@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -6,6 +7,7 @@ use librqbit::{Api, Session};
 use parking_lot::RwLock;
 use reqwest::Client;
 
+use crate::sequential::SequentialStreams;
 use crate::settings::NexttorrentSettings;
 
 #[derive(Clone)]
@@ -20,4 +22,7 @@ pub struct AppState {
     pub http_client: Client,
     pub watch_processed_path: PathBuf,
     pub watch_processed: Arc<RwLock<HashSet<String>>>,
+    pub sequential_streams: Arc<SequentialStreams>,
+    pub seeding_started_path: PathBuf,
+    pub seeding_started: Arc<RwLock<HashMap<String, u64>>>,
 }

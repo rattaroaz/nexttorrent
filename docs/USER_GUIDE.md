@@ -50,14 +50,44 @@ Binding to a specific VPN interface is **not exposed as a first-class UI toggle*
 ## Queue & scheduler
 
 - **Max active downloads** & **Stalled timeout** are enforced in the app layer (pause torrents when limits are exceeded or download speed stays near zero).
-- **Max active uploads** is stored in settings for future use but is **not** enforced in this build.
+- **Max active uploads** is enforced for finished (seeding) torrents when set.
 - **Speed scheduler**: One configurable daily window (local time) overrides global bandwidth caps while active.
+- **Sequential download**: When enabled in Settings, new torrents attach a librqbit streaming handle on the largest included file to bias piece picking toward the file start.
+
+## Magnet links, files & clipboard
+
+- **OS magnet handler**: After install, Nexttorrent registers for `magnet:` links (deep link). Clicking a magnet in the browser opens or focuses Nexttorrent and adds the torrent.
+- **Clipboard on startup**: If the clipboard contains a `magnet:?` URI when the app launches, you are prompted to add it.
+- **Drag and drop**: Drop one or more `.torrent` files onto the main window to add them.
+- **List UX**: Click column headers to sort (click again to reverse). Right-click a row for pause/resume, open folder, copy hash/name, or remove.
+- **Per-torrent speed limits**: Set under the detail pane. Limits are saved and re-applied to the running torrent when metadata is available (brief reconnect; completed pieces stay on disk).
 
 ## Tray & autostart
 
-- **Minimize to tray**: When enabled, closing the window hides it instead of quitting; use **Quit** in the toolbar to exit fully.
+- **System tray**: A tray icon is always available with **Show**, **Pause all**, **Resume all**, and **Quit**.
+- **Minimize to tray**: When enabled, closing the window hides it instead of quitting; use the tray menu or **Quit** in the toolbar to exit fully.
 - **Start at login**: Uses the Tauri autostart plugin; OS prompts may appear depending on platform policies.
 
 ## Updates
 
-Built-in auto-update via `tauri-plugin-updater` is **not wired** in this repository; ship updates through your preferred channel (installer download, package manager, etc.). Adding the updater plugin is optional—see Tauri v2 updater documentation.
+Updates are **manual only** (never checked on startup). Use **Settings → Check for updates…**.
+
+The app fetches a signed `latest.json` from the configured GitHub Releases endpoint, compares versions with a strict semver guard, downloads the signed installer, installs in passive mode on Windows, then relaunches via `tauri-plugin-process`.
+
+Configure `plugins.updater.pubkey` and `endpoints` in `src-tauri/tauri.conf.json` (see `docs/CODE_SIGNING.md` and `updaterdocs.txt`). If no release feed exists yet, the dialog explains that setup is incomplete instead of showing a raw 404.
+
+## Logs & diagnostics
+
+Nexttorrent keeps several log surfaces for troubleshooting:
+
+| Location | Purpose |
+|----------|---------|
+| **Logs** side panel / **Activity** tab | UI session messages plus live backend trace lines |
+| **`nexttorrent.log`** (config dir) | Persistent INFO/WARN/ERROR session log (batched writes; timestamps) |
+| **`nexttorrent-diag.log`** (config dir) | Command failures and fatal startup errors |
+
+Default Rust filter is `info,librqbit=warn,librqbit_core=warn` so engine chatter stays out of the activity log. Override with the `RUST_LOG` environment variable (for example `RUST_LOG=librqbit=debug`).
+
+On Windows the config directory is typically under `%APPDATA%` for the app identifier. Use **Settings → Open logs folder…** or **Logs → Open folder** to reveal it in the file manager.
+
+To share logs with support: open the Logs panel, copy the text, or attach `nexttorrent.log` and `nexttorrent-diag.log` from the config folder. Use **Export backup** in Settings for a full settings + session archive (not a log bundle).

@@ -3,9 +3,10 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use librqbit::api::{ApiTorrentListOpts, TorrentIdOrHash};
+use librqbit::api::{ApiTorrentListOpts, LiveStats, TorrentIdOrHash};
 use librqbit::TorrentStatsState;
 
+use crate::seeding_rules;
 use crate::settings::NexttorrentSettings;
 use crate::state::AppState;
 
@@ -20,8 +21,27 @@ fn mbps_near_zero(mbps: f64) -> bool {
     mbps.abs() < 1e-9 || mbps < 0.000_001
 }
 
+/// True when the torrent has already discovered or connected to peers.
+/// Brand-new torrents with 0 peers must not be treated as stalled.
+pub(crate) fn has_peer_activity(live: Option<&LiveStats>) -> bool {
+    let Some(live) = live else {
+        return false;
+    };
+    let ps = &live.snapshot.peer_stats;
+    ps.live > 0 || ps.connecting > 0 || ps.seen > 0 || ps.queued > 0
+}
+
+/// Whether stall ticks should advance for this torrent.
+pub(crate) fn should_count_stall_tick(download_mbps: f64, has_peers: bool) -> bool {
+    mbps_near_zero(download_mbps) && has_peers
+}
+
 /// Pause torrents when too many are downloading, or when stalled (no meaningful download speed).
-pub async fn apply_queue_rules(state: &AppState, stall_ticks: &mut HashMap<String, u32>) {
+pub async fn apply_queue_rules(
+    state: &AppState,
+    stall_ticks: &mut HashMap<String, u32>,
+    seeding_started: &mut HashMap<String, u64>,
+) {
     let settings: NexttorrentSettings = state.settings.read().clone();
     let list = state
         .api
@@ -54,15 +74,13 @@ pub async fn apply_queue_rules(state: &AppState, stall_ticks: &mut HashMap<Strin
         let Some(stats) = &t.stats else {
             continue;
         };
-        let live_mbps = stats
-            .live
-            .as_ref()
-            .map(|l| l.download_speed.mbps)
-            .unwrap_or(0.0);
+        let live = stats.live.as_ref();
+        let live_mbps = live.map(|l| l.download_speed.mbps).unwrap_or(0.0);
+        let peers = has_peer_activity(live);
 
         if let Some(timeout) = settings.stalled_timeout_secs.filter(|s| *s > 0) {
             let ticks_needed = timeout.div_ceil(TICK_SECS).max(1) as u32;
-            if mbps_near_zero(live_mbps) {
+            if should_count_stall_tick(live_mbps, peers) {
                 let n = stall_ticks.entry(key.clone()).or_insert(0);
                 *n += 1;
                 if *n >= ticks_needed {
@@ -72,6 +90,12 @@ pub async fn apply_queue_rules(state: &AppState, stall_ticks: &mut HashMap<Strin
                     stall_ticks.remove(&key);
                     tracing::info!(torrent = %key, "paused stalled torrent");
                 }
+            } else if mbps_near_zero(live_mbps) && !peers {
+                stall_ticks.remove(&key);
+                tracing::debug!(
+                    torrent = %key,
+                    "stall timer skipped — no peers yet"
+                );
             } else {
                 stall_ticks.remove(&key);
             }
@@ -90,6 +114,33 @@ pub async fn apply_queue_rules(state: &AppState, stall_ticks: &mut HashMap<Strin
             }
         }
     }
+
+    let mut uploaders: Vec<(String, i64)> = Vec::new();
+    for t in &list.torrents {
+        let Some(stats) = &t.stats else {
+            continue;
+        };
+        let key = torrent_ref_string(t.id, &t.info_hash);
+        if !matches!(stats.state, TorrentStatsState::Live) || !stats.finished {
+            continue;
+        }
+        let id_ord = t.id.map(|i| i as i64).unwrap_or(-1);
+        uploaders.push((key, id_ord));
+    }
+
+    if let Some(max) = settings.max_active_uploads.filter(|m| *m > 0) {
+        uploaders.sort_by_key(|b| std::cmp::Reverse(b.1));
+        if uploaders.len() > max as usize {
+            for (key, _) in uploaders.into_iter().skip(max as usize) {
+                if let Ok(idx) = TorrentIdOrHash::parse(&key) {
+                    let _ = state.api.api_torrent_action_pause(idx).await;
+                }
+                tracing::info!(torrent = %key, "paused due to max_active_uploads");
+            }
+        }
+    }
+
+    seeding_rules::apply_seeding_rules(state, seeding_started).await;
 }
 
 pub fn spawn_queue_loop(state: AppState) {
@@ -99,7 +150,22 @@ pub fn spawn_queue_loop(state: AppState) {
         let mut interval = tokio::time::interval(Duration::from_secs(TICK_SECS));
         loop {
             interval.tick().await;
-            apply_queue_rules(&bg, &mut stall_ticks).await;
+            let mut seeding = bg.seeding_started.read().clone();
+            apply_queue_rules(&bg, &mut stall_ticks, &mut seeding).await;
+            *bg.seeding_started.write() = seeding;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stall_tick_requires_peers() {
+        assert!(!should_count_stall_tick(0.0, false));
+        assert!(should_count_stall_tick(0.0, true));
+        assert!(!should_count_stall_tick(0.5, true));
+        assert!(!should_count_stall_tick(0.5, false));
+    }
 }

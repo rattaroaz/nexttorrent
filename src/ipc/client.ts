@@ -2,7 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 
 import {
   IPC_COMMANDS,
+  type ActivityLogSnapshot,
   type NexttorrentSettings,
+  type NetworkInterfaceInfo,
+  type PathsSnapshot,
+  type PerTorrentBandwidthLimits,
   type RssPollResult,
   type SessionSnapshot,
   type TorrentDetails,
@@ -16,6 +20,12 @@ export async function quitApp(): Promise<void> {
 
 export async function getSessionSnapshot(): Promise<SessionSnapshot> {
   return invoke(IPC_COMMANDS.getSessionSnapshot);
+}
+
+export async function resolveDownloadPath(
+  relativePath: string,
+): Promise<string> {
+  return invoke(IPC_COMMANDS.resolveDownloadPath, { relativePath });
 }
 
 export async function torrentListFull(): Promise<{ torrents: TorrentRow[] }> {
@@ -129,6 +139,56 @@ export async function torrentPauseAll(): Promise<void> {
   return invoke(IPC_COMMANDS.torrentPauseAll);
 }
 
+export async function torrentResumeAll(): Promise<void> {
+  return invoke(IPC_COMMANDS.torrentResumeAll);
+}
+
+export async function torrentOpenFolder(torrentRef: string): Promise<void> {
+  return invoke(IPC_COMMANDS.torrentOpenFolder, { torrentRef });
+}
+
+export async function torrentRevealFile(
+  torrentRef: string,
+  fileIndex: number,
+): Promise<void> {
+  return invoke(IPC_COMMANDS.torrentRevealFile, { torrentRef, fileIndex });
+}
+
+export async function torrentTrackers(torrentRef: string): Promise<string[]> {
+  return invoke(IPC_COMMANDS.torrentTrackers, { torrentRef });
+}
+
+export async function torrentLiveStats(torrentRef: string): Promise<unknown> {
+  return invoke(IPC_COMMANDS.torrentLiveStats, { torrentRef });
+}
+
+export async function torrentStats(torrentRef: string): Promise<unknown> {
+  return invoke(IPC_COMMANDS.torrentStats, { torrentRef });
+}
+
+export async function sessionDhtStats(): Promise<unknown> {
+  return invoke(IPC_COMMANDS.sessionDhtStats);
+}
+
+export async function getTorrentBandwidthLimits(
+  infoHash: string,
+): Promise<PerTorrentBandwidthLimits> {
+  return invoke(IPC_COMMANDS.getTorrentBandwidthLimits, { infoHash });
+}
+
+/** Persist limits and re-apply to a running torrent when possible. Returns whether live re-apply ran. */
+export async function setTorrentBandwidthLimits(
+  infoHash: string,
+  downloadLimitBps: number | null,
+  uploadLimitBps: number | null,
+): Promise<boolean> {
+  return invoke(IPC_COMMANDS.setTorrentBandwidthLimits, {
+    infoHash,
+    downloadLimitBps,
+    uploadLimitBps,
+  });
+}
+
 export async function rssPollFeeds(): Promise<RssPollResult> {
   return invoke(IPC_COMMANDS.rssPollFeeds);
 }
@@ -137,6 +197,39 @@ export async function diskFreeBytes(path: string): Promise<number> {
   return invoke(IPC_COMMANDS.diskFreeBytes, { path });
 }
 
+export async function getActivityLog(
+  maxLines?: number,
+): Promise<ActivityLogSnapshot> {
+  return invoke(IPC_COMMANDS.getActivityLog, { maxLines });
+}
+
+/** Open the OS config directory that holds nexttorrent.log / nexttorrent-diag.log. */
+export async function openLogsFolder(): Promise<string> {
+  return invoke(IPC_COMMANDS.openLogsFolder);
+}
+
 export async function watchPoll(): Promise<number> {
   return invoke(IPC_COMMANDS.watchPoll);
+}
+
+export async function exportConfigurationPaths(): Promise<PathsSnapshot> {
+  return invoke(IPC_COMMANDS.exportConfigurationPaths);
+}
+
+export async function exportConfigurationBundle(
+  destZip: string,
+): Promise<void> {
+  return invoke(IPC_COMMANDS.exportConfigurationBundle, { destZip });
+}
+
+export async function importConfigurationBundle(
+  srcZip: string,
+): Promise<void> {
+  return invoke(IPC_COMMANDS.importConfigurationBundle, { srcZip });
+}
+
+export async function listNetworkInterfaces(): Promise<
+  NetworkInterfaceInfo[]
+> {
+  return invoke(IPC_COMMANDS.listNetworkInterfaces);
 }

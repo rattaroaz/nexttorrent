@@ -1,15 +1,25 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useState } from "react";
+import { readText } from "@tauri-apps/plugin-clipboard-manager";
+import { ask } from "@tauri-apps/plugin-dialog";
+import { getCurrent as getDeepLinkUrls } from "@tauri-apps/plugin-deep-link";
+import { useEffect, useRef, useState } from "react";
 
 import { DebugOverlay } from "./components/DebugOverlay";
+import { UpdateDialog } from "./components/UpdateDialog";
 import { TorrentWorkspace } from "./components/TorrentWorkspace";
 import { IPC_EVENTS, type SessionSnapshot } from "./ipc/contracts";
-import { getNexttorrentSettings, getSessionSnapshot } from "./ipc/client";
+import {
+  getNexttorrentSettings,
+  getSessionSnapshot,
+  torrentAddMagnet,
+} from "./ipc/client";
+import { formatInvokeError } from "./ipc/invokeError";
 import "./App.css";
 
 function App() {
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
+  const clipboardChecked = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +50,44 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (clipboardChecked.current) {
+      return;
+    }
+    clipboardChecked.current = true;
+
+    void (async () => {
+      try {
+        const urls = (await getDeepLinkUrls()) ?? [];
+        for (const url of urls) {
+          if (url.startsWith("magnet:")) {
+            await torrentAddMagnet(url, null, null, false);
+          }
+        }
+      } catch {
+        /* deep-link plugin may be unavailable in dev */
+      }
+
+      try {
+        const text = (await readText())?.trim() ?? "";
+        if (!text.startsWith("magnet:?")) {
+          return;
+        }
+        const add = await ask(
+          "A magnet link was found on the clipboard. Add it to Nexttorrent?",
+          { title: "Add magnet from clipboard", kind: "info" },
+        );
+        if (add) {
+          await torrentAddMagnet(text, null, null, false);
+        }
+      } catch {
+        /* clipboard unavailable */
+      }
+    })().catch((e) => {
+      console.warn("clipboard magnet prompt failed:", formatInvokeError(e));
+    });
+  }, []);
+
+  useEffect(() => {
     let unlistenClose: (() => void) | undefined;
     void (async () => {
       unlistenClose = await getCurrentWindow().onCloseRequested(
@@ -60,6 +108,7 @@ function App() {
   return (
     <>
       <TorrentWorkspace />
+      <UpdateDialog />
       <DebugOverlay snapshot={snapshot} />
     </>
   );

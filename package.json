@@ -1,10 +1,11 @@
 {
   "name": "nexttorrent",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:e2e": "cross-env VITE_E2E_MOCK=1 vite --port 4173 --strictPort",
     "build": "tsc && vite build",
     "build:msi": "tauri build",
     "preview": "vite preview",
@@ -14,7 +15,10 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "check:ipc": "node scripts/check-ipc-contracts.mjs",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
     "test:watch": "vitest",
     "tauri:windows:build": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/msix-build.ps1",
     "build:msix": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/msix-build.ps1"
@@ -23,15 +27,20 @@
     "@tanstack/react-virtual": "^3.13.24",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
+    "@tauri-apps/plugin-deep-link": "^2.4.9",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@choochmeque/tauri-windows-bundle": "^0.1.18",
     "@eslint/js": "^9.28.0",
+    "@playwright/test": "^1.52.0",
     "@tauri-apps/cli": "^2",
     "@testing-library/react": "^16.3.0",
     "@types/node": "^22.15.21",
@@ -46,6 +55,8 @@
     "prettier": "^3.5.3",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.33.1",
+    "cross-env": "^7.0.3",
+    "@vitest/coverage-v8": "^3.2.3",
     "vite": "^7.0.4",
     "vitest": "^3.2.3"
   }

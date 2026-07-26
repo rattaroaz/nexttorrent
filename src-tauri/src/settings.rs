@@ -36,17 +36,61 @@ pub struct SpeedScheduler {
     pub slots: Vec<SpeedSchedulerSlot>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RssFeedKind {
+    Rss,
+    Torznab,
+}
+
+impl Default for RssFeedKind {
+    fn default() -> Self {
+        Self::Rss
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RssFeedEntry {
     pub id: String,
     pub url: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub kind: RssFeedKind,
+    /// Torznab / Jackett API key (appended as `apikey` query param when set).
+    #[serde(default)]
+    pub api_key: Option<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
     pub auto_add: bool,
     #[serde(default)]
     pub last_seen_ids: Vec<String>,
+    /// Optional regex; item title must match when set.
+    #[serde(default)]
+    pub title_regex: Option<String>,
+    /// Optional regex; items matching are skipped.
+    #[serde(default)]
+    pub exclude_regex: Option<String>,
+    /// Comma-separated keywords; all must appear in the title (case-insensitive).
+    #[serde(default)]
+    pub quality_filter: Option<String>,
+    /// Category name (lowercase) → absolute save directory.
+    #[serde(default)]
+    pub category_save_paths: HashMap<String, String>,
+    /// Default save directory when no category mapping matches.
+    #[serde(default)]
+    pub default_save_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerTorrentBandwidthLimits {
+    #[serde(default)]
+    pub download_limit_bps: Option<u32>,
+    #[serde(default)]
+    pub upload_limit_bps: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,7 +128,7 @@ pub struct NexttorrentSettings {
     pub watch_folders: Vec<String>,
     #[serde(default)]
     pub max_active_downloads: Option<u32>,
-    /// Reserved for future engine hooks (stored for UX parity with roadmap).
+    /// Max simultaneous seeding (finished + live) torrents; enforced in `queue_control`.
     #[serde(default)]
     pub max_active_uploads: Option<u32>,
     #[serde(default)]
@@ -98,6 +142,18 @@ pub struct NexttorrentSettings {
     /// Warn / block adds when free space falls below this (mebibytes), best-effort.
     #[serde(default)]
     pub disk_space_reserve_mb: Option<u64>,
+    /// Per-torrent download/upload caps (applied when torrent is added).
+    #[serde(default)]
+    pub per_torrent_limits_by_info_hash: HashMap<String, PerTorrentBandwidthLimits>,
+    /// Pause seeding when upload/download ratio reaches this (e.g. 1.0).
+    #[serde(default)]
+    pub seed_ratio_limit: Option<f64>,
+    /// Pause seeding after this many hours once the torrent finishes.
+    #[serde(default)]
+    pub seed_time_limit_hours: Option<f64>,
+    /// Preferred network interface name (stored for VPN workflows; librqbit 8 does not bind yet).
+    #[serde(default)]
+    pub bind_interface: Option<String>,
 }
 
 fn default_listen_start() -> u16 {
@@ -139,11 +195,32 @@ impl Default for NexttorrentSettings {
             start_at_login: false,
             minimize_to_tray: false,
             disk_space_reserve_mb: Some(512),
+            per_torrent_limits_by_info_hash: HashMap::new(),
+            seed_ratio_limit: None,
+            seed_time_limit_hours: None,
+            bind_interface: None,
         }
     }
 }
 
 impl NexttorrentSettings {
+    pub fn limits_config_for_info_hash(
+        &self,
+        info_hash: &str,
+    ) -> librqbit::limits::LimitsConfig {
+        use std::num::NonZeroU32;
+
+        self.per_torrent_limits_by_info_hash
+            .get(info_hash)
+            .map(|l| librqbit::limits::LimitsConfig {
+                download_bps: l
+                    .download_limit_bps
+                    .and_then(|v| NonZeroU32::new(v)),
+                upload_bps: l.upload_limit_bps.and_then(|v| NonZeroU32::new(v)),
+            })
+            .unwrap_or_default()
+    }
+
     pub fn resolved_download_dir(&self, paths: &AppPaths) -> PathBuf {
         self.download_dir
             .as_ref()

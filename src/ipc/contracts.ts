@@ -25,15 +25,28 @@ export const IPC_COMMANDS = {
   saveNexttorrentSettings: "save_nexttorrent_settings",
   setTorrentLabel: "set_torrent_label",
   exportConfigurationPaths: "export_configuration_paths",
+  exportConfigurationBundle: "export_configuration_bundle",
+  importConfigurationBundle: "import_configuration_bundle",
+  listNetworkInterfaces: "list_network_interfaces",
   torrentPauseAll: "torrent_pause_all",
+  torrentResumeAll: "torrent_resume_all",
+  torrentOpenFolder: "torrent_open_folder",
+  torrentRevealFile: "torrent_reveal_file",
+  torrentTrackers: "torrent_trackers",
+  getTorrentBandwidthLimits: "get_torrent_bandwidth_limits",
+  setTorrentBandwidthLimits: "set_torrent_bandwidth_limits",
   rssPollFeeds: "rss_poll_feeds",
   diskFreeBytes: "disk_free_bytes",
   watchPoll: "watch_poll",
+  getActivityLog: "get_activity_log",
+  openLogsFolder: "open_logs_folder",
 } as const;
 
 export const IPC_EVENTS = {
   sessionReady: "session:ready",
   torrentsUpdate: "torrents:update",
+  magnetAdded: "magnet:added",
+  magnetRejected: "magnet:rejected",
 } as const;
 
 export type SessionSnapshot = {
@@ -57,12 +70,42 @@ export type SpeedScheduler = {
   slots: SpeedSchedulerSlot[];
 };
 
+export type RssFeedKind = "rss" | "torznab";
+
 export type RssFeedEntry = {
   id: string;
   url: string;
+  name?: string | null;
+  kind?: RssFeedKind;
+  apiKey?: string | null;
   enabled: boolean;
   autoAdd: boolean;
   lastSeenIds: string[];
+  titleRegex?: string | null;
+  excludeRegex?: string | null;
+  qualityFilter?: string | null;
+  categorySavePaths?: Record<string, string>;
+  defaultSavePath?: string | null;
+};
+
+export type PathsSnapshot = {
+  settingsFile: string;
+  rqbitPersistenceDir: string;
+  configDir: string;
+  cacheDir: string;
+  watchProcessedFile: string;
+  seedingStartedFile: string;
+};
+
+export type NetworkInterfaceInfo = {
+  name: string;
+  receivedBytes: number;
+  transmittedBytes: number;
+};
+
+export type PerTorrentBandwidthLimits = {
+  downloadLimitBps: number | null;
+  uploadLimitBps: number | null;
 };
 
 export type NexttorrentSettings = {
@@ -86,6 +129,16 @@ export type NexttorrentSettings = {
   startAtLogin: boolean;
   minimizeToTray: boolean;
   diskSpaceReserveMb: number | null;
+  perTorrentLimitsByInfoHash: Record<string, PerTorrentBandwidthLimits>;
+  seedRatioLimit: number | null;
+  seedTimeLimitHours: number | null;
+  bindInterface: string | null;
+};
+
+export type ActivityLogSnapshot = {
+  traceLines: string[];
+  diagFileLines: string[];
+  sessionFileLines: string[];
 };
 
 export type RssPollResult = {
@@ -160,4 +213,8 @@ export const DEFAULT_NEXTTORRENT_SETTINGS: NexttorrentSettings = {
   startAtLogin: false,
   minimizeToTray: false,
   diskSpaceReserveMb: 512,
+  perTorrentLimitsByInfoHash: {},
+  seedRatioLimit: null,
+  seedTimeLimitHours: null,
+  bindInterface: null,
 };

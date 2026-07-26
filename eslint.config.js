@@ -6,7 +6,15 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "src-tauri/target"] },
+  {
+    ignores: [
+      "dist",
+      "src-tauri/target",
+      "coverage",
+      "test-results",
+      "node_modules",
+    ],
+  },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -26,6 +34,14 @@ export default tseslint.config(
         "warn",
         { allowConstantExport: true },
       ],
+    },
+  },
+  {
+    files: ["scripts/**/*.{js,mjs,cjs}", "*.config.{js,mjs,cjs,ts}"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
     },
   },
 );

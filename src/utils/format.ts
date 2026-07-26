@@ -50,3 +50,81 @@ export function ratioString(up: number, down: number): string {
   }
   return (up / down).toFixed(2);
 }
+
+/** Visual tone for torrent lifecycle state badges. */
+export type TorrentStateTone =
+  | "downloading"
+  | "seeding"
+  | "paused"
+  | "error"
+  | "queued"
+  | "idle";
+
+export type TorrentStateDisplay = {
+  label: string;
+  tone: TorrentStateTone;
+};
+
+export type TorrentStateOpts = {
+  finished?: boolean;
+  error?: string | null;
+  /** True when total size is still unknown (magnet metadata not fetched). */
+  awaitingMetadata?: boolean;
+  /** Connected / connecting / seen peer count when available. */
+  peerCount?: number;
+};
+
+/**
+ * Map raw librqbit / app state strings into short UI labels.
+ * Prefer finished + live → Seeding; finished + paused → Done.
+ */
+export function formatTorrentState(
+  state: string | null | undefined,
+  opts?: TorrentStateOpts,
+): TorrentStateDisplay {
+  if (opts?.error) {
+    return { label: "Error", tone: "error" };
+  }
+  const raw = (state ?? "").toLowerCase().trim();
+  const finished = opts?.finished === true;
+
+  if (raw.includes("error") || raw.includes("fail")) {
+    return { label: "Error", tone: "error" };
+  }
+  if (raw.includes("paused") || raw === "paused") {
+    return {
+      label: finished ? "Done" : "Paused",
+      tone: finished ? "seeding" : "paused",
+    };
+  }
+  if (raw.includes("initializing") || opts?.awaitingMetadata) {
+    return { label: "Fetching metadata", tone: "queued" };
+  }
+  if (raw.includes("queued")) {
+    return { label: "Queued", tone: "queued" };
+  }
+  if (raw.includes("checking") || raw.includes("hash") || raw.includes("verify")) {
+    return { label: "Checking", tone: "queued" };
+  }
+  if (finished || raw.includes("seed")) {
+    return { label: "Seeding", tone: "seeding" };
+  }
+  if (
+    raw.includes("live") ||
+    raw.includes("download") ||
+    raw.includes("active") ||
+    raw.includes("running")
+  ) {
+    const peers = opts?.peerCount;
+    if (peers != null && peers <= 0) {
+      return { label: "Connecting", tone: "queued" };
+    }
+    return { label: "Downloading", tone: "downloading" };
+  }
+  if (!raw) {
+    return { label: "—", tone: "idle" };
+  }
+  // Fallback: title-case the raw token
+  const label = raw.charAt(0).toUpperCase() + raw.slice(1);
+  return { label, tone: "idle" };
+}

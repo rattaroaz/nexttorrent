@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use tauri::AppHandle;
+use tauri_plugin_opener::OpenerExt;
 
 use crate::ipc::SessionSnapshot;
 use crate::paths::{self, PathError};
@@ -18,7 +19,9 @@ pub fn build_session_snapshot<R: tauri::Runtime>(
 ) -> Result<SessionSnapshot, PathError> {
     let paths = paths::app_paths(app)?;
     let effective = settings.resolved_download_dir(&paths);
-    let log_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+    let log_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| {
+        "info,librqbit=warn,librqbit_core=warn".to_string()
+    });
 
     Ok(SessionSnapshot {
         download_dir: path_buf_to_string(paths.download_dir.clone())?,
@@ -45,6 +48,28 @@ pub fn get_session_snapshot(app: AppHandle) -> Result<SessionSnapshot, String> {
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+pub fn get_activity_log(app: AppHandle, max_lines: Option<usize>) -> Result<crate::diag_log::ActivityLogSnapshot, String> {
+    let paths = paths::app_paths(&app).map_err(|e| e.to_string())?;
+    let n = max_lines.unwrap_or(200).clamp(10, 500);
+    Ok(crate::diag_log::activity_log_snapshot(&paths.config_dir, n))
+}
+
+/// Open the app config directory (where `nexttorrent.log` / `nexttorrent-diag.log` live).
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub fn open_logs_folder(app: AppHandle) -> Result<String, String> {
+    let paths = paths::app_paths(&app).map_err(|e| e.to_string())?;
+    let dir = paths.config_dir;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path_str = dir.to_string_lossy().into_owned();
+    app.opener()
+        .open_path(&path_str, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    tracing::info!(path = %path_str, "opened logs folder");
+    Ok(path_str)
 }
 
 #[tauri::command]

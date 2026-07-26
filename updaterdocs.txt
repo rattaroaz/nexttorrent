@@ -1,0 +1,828 @@
+================================================================================
+TAURI 2 + TYPESCRIPT IN-APP UPDATER — REPLICATION GUIDE
+================================================================================
+
+This document describes the complete auto-update system used in this PDF Editor
+app. It is written so an AI coder (or human) can reproduce the same design in
+ANY other Tauri 2 + TypeScript project. App-specific names (PDF Editor, pdfeditor,
+rattaroaz/pdfeditor) are called out as placeholders you must replace.
+
+-------------------------------------------------------------------------------
+1. DESIGN SUMMARY
+-------------------------------------------------------------------------------
+
+WHAT IT DOES
+  - User manually checks for updates via Help → Check for updates.
+  - App fetches a signed latest.json from GitHub Releases.
+  - If the published version is STRICTLY NEWER than the installed version, the
+    app downloads the signed installer in the background, installs it, and
+    restarts.
+  - Updates are NEVER checked or applied automatically on startup.
+
+WHAT IT DOES NOT DO
+  - It does not read package.json from GitHub source code.
+  - It does not update from a git tag alone — a GitHub Release with latest.json
+    and signed installer assets must exist.
+  - It does not downgrade (allowDowngrades: false).
+  - Local unsigned dev builds cannot verify production-signed updates unless
+    built with the same signing key pair.
+
+PLATFORM SCOPE (this app)
+  - Windows only: NSIS (.exe) + MSI bundles.
+  - Updater endpoint: GitHub Releases /latest/download/latest.json.
+  - Tauri updater installMode on Windows: passive (minimal UI during install).
+
+KEY ARCHITECTURAL CHOICE
+  - Tauri's plugin-updater handles fetch, signature verify, download, install.
+  - TypeScript adds: semver guard, UI dialog, unsaved-work prompt, logging,
+    and user-friendly errors when the release feed is missing.
+
+-------------------------------------------------------------------------------
+2. END-TO-END FLOW
+-------------------------------------------------------------------------------
+
+USER ACTION
+  Help menu → "Check for updates" → calls checkForUpdatesAndApply()
+
+FRONTEND (TypeScript)
+  1. Open UpdateDialog (phase: checking).
+  2. Log installed version.
+  3. Call check({ allowDowngrades: false }) from @tauri-apps/plugin-updater.
+  4. If no update object OR remote version not newer → show "up to date".
+  5. If newer:
+     a. If document has unsaved changes → ask user to confirm discard.
+     b. downloadAndInstall() with progress callbacks.
+     c. relaunch() from @tauri-apps/plugin-process.
+  6. On error: distinguish "feed missing" (404) vs other failures.
+
+TAURI PLUGIN (Rust + native)
+  1. GET latest.json from configured endpoint URL.
+  2. Parse version, notes, pub_date, per-platform url + signature.
+  3. Verify latest.json and installer signatures with pubkey in tauri.conf.json.
+  4. Compare remote version with installed (plugin may return update object).
+  5. Download correct platform artifact (windows-x86_64-nsis preferred).
+  6. Run installer (passive mode on Windows).
+
+CI / RELEASE
+  1. Developer bumps version in package.json, Cargo.toml, tauri.conf.json.
+  2. git tag vX.Y.Z && git push origin vX.Y.Z
+  3. GitHub Actions runs tauri-action with signing secrets.
+  4. Release assets uploaded: latest.json, .exe, .exe.sig, .msi, .msi.sig
+  5. Installed apps see new version on next manual check.
+
+-------------------------------------------------------------------------------
+3. VERSION SOURCES OF TRUTH (CRITICAL)
+-------------------------------------------------------------------------------
+
+These files MUST stay in sync when releasing:
+
+  package.json          → "version": "X.Y.Z"
+  package-lock.json     → root version + packages."".version
+  src-tauri/Cargo.toml  → version = "X.Y.Z"
+  src-tauri/Cargo.lock  → [[package]] name = "your-crate" version = "X.Y.Z"
+  src-tauri/tauri.conf.json → "version": "X.Y.Z"
+
+Frontend installed version is read at build time:
+
+  src/lib/constants.ts:
+    import pkg from "../../package.json";
+    export const APP_VERSION = pkg.version;
+
+Git tag convention: vX.Y.Z (e.g. v1.2.1) — must match tauri.conf.json version.
+
+SEMVER RULES (custom helper, src/lib/semver.ts)
+  - Parses 1.2.3 or v1.2.3; 1.2 is treated as 1.2.0 (patch defaults to 0).
+  - isVersionNewer(candidate, installed) is STRICT greater-than per
+    major → minor → patch.
+  - Equal versions → not newer.
+  - WHY: Defense in depth. Even if Tauri returns an update object, the app
+    refuses to download when remote <= installed. This prevents showing an
+    update when GitHub /latest points at an OLDER release than installed.
+
+COMMON FAILURE MODE (read this carefully)
+  - Source code on main says 1.2.1 but GitHub Releases latest is v1.1.6.
+  - latest.json says version 1.1.6.
+  - User on 1.2.0 sees "up to date" — CORRECT behavior.
+  - Fix: publish a new GitHub Release for v1.2.1, not just bump source files.
+
+-------------------------------------------------------------------------------
+4. NPM DEPENDENCIES
+-------------------------------------------------------------------------------
+
+Production (package.json dependencies):
+  "@tauri-apps/plugin-updater": "^2.10.1"   (or latest Tauri 2 plugin)
+  "@tauri-apps/plugin-process": "^2.3.1"    (relaunch after install)
+  "@tauri-apps/plugin-dialog": "^2"           (unsaved-changes confirm)
+
+Dev:
+  "@tauri-apps/cli": "^2"
+
+Install:
+  npm install @tauri-apps/plugin-updater @tauri-apps/plugin-process
+
+-------------------------------------------------------------------------------
+5. RUST / TAURI BACKEND SETUP
+-------------------------------------------------------------------------------
+
+src-tauri/Cargo.toml — add:
+  tauri-plugin-updater = "2"
+  tauri-plugin-process = "2"
+
+src-tauri/src/lib.rs — register plugins:
+  .plugin(tauri_plugin_updater::Builder::new().build())
+  .plugin(tauri_plugin_process::init())
+
+Order relative to other plugins does not matter much; register before .run().
+
+src-tauri/capabilities/default.json — add permissions:
+  "updater:default",
+  "process:default",
+  "dialog:allow-ask",    (if using ask() for confirmations)
+
+Without updater:default the frontend check() call will fail at runtime.
+
+-------------------------------------------------------------------------------
+6. TAURI.CONF.JSON CONFIGURATION
+-------------------------------------------------------------------------------
+
+Required bundle settings:
+
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,    // generates .sig files + latest.json
+    "targets": ["nsis", "msi"],          // adjust per platform needs
+    ...
+  }
+
+Required plugins.updater block:
+
+  "plugins": {
+    "updater": {
+      "pubkey": "<BASE64_PUBLIC_KEY>",
+      "endpoints": [
+        "https://github.com/<ORG>/<REPO>/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+
+PLACEHOLDERS TO REPLACE IN A NEW APP
+  - pubkey: your minisign public key (see section 7)
+  - endpoints[0]: your GitHub repo URL pattern above
+  - productName, identifier, bundle metadata as needed
+
+installMode options (Windows):
+  - "passive" — progress bar, no user clicks (used here)
+  - "basic"   — standard installer UI
+  - "quiet"   — no UI
+
+createUpdaterArtifacts:
+  - true in CI and signed local release builds.
+  - false for ordinary local dev builds without signing key (see section 10).
+
+-------------------------------------------------------------------------------
+7. SIGNING KEY PAIR (MINISIGN)
+-------------------------------------------------------------------------------
+
+Tauri updater uses minisign-style keys. The PUBLIC key goes in tauri.conf.json.
+The PRIVATE key signs installers in CI; NEVER commit the private key.
+
+GENERATE (once per app):
+  ALWAYS pass the password on the command line when using --ci. Without -p, the
+  CLI may generate a random password or prompt in non-CI mode — you will not
+  know what to put in GitHub secrets, and CI will fail with "Wrong password
+  for that key" even if you think you remember the password.
+
+  npm run tauri signer generate -- -w scripts/tauri-signing.key --ci --force -p "YOUR_STRONG_PASSWORD"
+
+  Record the password in a password manager immediately. You cannot recover it
+  from the key file.
+
+This creates:
+  scripts/tauri-signing.key      → PRIVATE (gitignore this; single-line --ci format)
+  scripts/tauri-signing.key.pub  → PUBLIC (safe to commit for reference)
+
+Copy the public key content into tauri.conf.json plugins.updater.pubkey.
+The value is a single base64 string (may include newlines when pasted from CLI;
+tauri.conf.json stores it as one line).
+
+THREE-WAY SYNC (critical — mismatch causes CI failure or broken updates):
+  These three MUST always refer to the SAME key pair:
+    1. scripts/tauri-signing.key           (local private key file)
+    2. GitHub secret TAURI_SIGNING_PRIVATE_KEY  (copy of that file's contents)
+    3. plugins.updater.pubkey in tauri.conf.json  (matches .key.pub)
+
+  If you regenerate the key pair, update ALL THREE. Committing a new .pub and
+  pubkey without updating the GitHub secret (or vice versa) produces signature
+  errors at install time or "Wrong password" in CI.
+
+VERIFY KEY + PASSWORD LOCALLY BEFORE ADDING GITHUB SECRETS:
+  Do this immediately after generate. If this fails, fix it before touching
+  GitHub — a failing local test means CI will fail the same way.
+
+  # PowerShell (Windows)
+  echo "test" > scripts/sign-test.txt
+  $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content scripts/tauri-signing.key -Raw
+  $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "YOUR_STRONG_PASSWORD"
+  npm run tauri signer sign -- scripts/sign-test.txt
+  # Success: scripts/sign-test.txt.sig is created. Delete both test files after.
+
+  # Bash (macOS/Linux)
+  echo test > scripts/sign-test.txt
+  export TAURI_SIGNING_PRIVATE_KEY="$(cat scripts/tauri-signing.key)"
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="YOUR_STRONG_PASSWORD"
+  npm run tauri signer sign -- scripts/sign-test.txt
+
+  If you see "Wrong password for that key" locally, the password does not match
+  the key on disk — regenerate with -p or use the correct password. Do NOT assume
+  GitHub secrets are misconfigured until local sign succeeds.
+
+GITHUB ACTIONS SECRETS (required for release workflow):
+  TAURI_SIGNING_PRIVATE_KEY          → full contents of scripts/tauri-signing.key
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD → exact password passed to -p at generation
+
+  How to paste TAURI_SIGNING_PRIVATE_KEY:
+    - Copy the ENTIRE file (one line in --ci format). No quotes, no extra spaces.
+    - PowerShell: Get-Content scripts/tauri-signing.key -Raw | Set-Clipboard
+    - Do NOT paste the .pub file or the pubkey from tauri.conf.json.
+
+  How to paste TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+    - Exact password, no leading/trailing spaces or newlines.
+    - GitHub → Settings → Secrets often adds a trailing newline when pasted;
+      the release workflow trims whitespace, but verify if problems persist.
+
+If the key is password-protected and the password secret is wrong, CI fails
+with "Wrong password for that key" and NO latest.json is published.
+
+RECOVERY (wrong password / lost password / key out of sync):
+  1. npm run tauri signer generate -- -w scripts/tauri-signing.key --ci --force -p "NEW_PASSWORD"
+  2. Update plugins.updater.pubkey in tauri.conf.json from the new .pub file.
+  3. Commit scripts/tauri-signing.key.pub + tauri.conf.json pubkey change.
+  4. Replace BOTH GitHub secrets (private key file contents + new password).
+  5. Run the local sign test above before re-tagging.
+  Safe only before any signed release is installed by users. After users have
+  a build with the old pubkey embedded, changing keys requires a manual reinstall.
+
+VERIFICATION MODEL
+  - latest.json contains per-platform "signature" fields.
+  - Installed app embeds pubkey; plugin verifies before installing.
+  - Installed app version X built with pubkey A cannot trust updates signed
+    with a different private key B.
+
+-------------------------------------------------------------------------------
+8. latest.json FORMAT (produced by tauri-action / tauri build)
+-------------------------------------------------------------------------------
+
+Example structure (from a successful release):
+
+{
+  "version": "1.1.6",
+  "notes": "Release notes markdown/text",
+  "pub_date": "2026-06-10T04:37:01.411Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "<base64 minisign signature>",
+      "url": "https://github.com/<org>/<repo>/releases/download/v1.1.6/App_1.1.6_x64-setup.exe"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "<same or nsis-specific sig>",
+      "url": "https://github.com/<org>/<repo>/releases/download/v1.1.6/App_1.1.6_x64-setup.exe"
+    },
+    "windows-x86_64-msi": {
+      "signature": "<msi sig>",
+      "url": "https://github.com/<org>/<repo>/releases/download/v1.1.6/App_1.1.6_x64_en-US.msi"
+    }
+  }
+}
+
+ENDPOINT URL PATTERN
+  https://github.com/<ORG>/<REPO>/releases/latest/download/latest.json
+
+GitHub resolves "latest" to the most recently PUBLISHED release (not draft,
+not prerelease by default). The release MUST include an asset literally named
+latest.json (tauri-action does this when includeUpdaterJson: true).
+
+-------------------------------------------------------------------------------
+9. FRONTEND SERVICE LAYER — updateService.ts
+-------------------------------------------------------------------------------
+
+FILE: src/services/updateService.ts
+
+EXPORTS:
+  checkForUpdatesAndApply(): Promise<void>
+
+IMPORTS:
+  check              from @tauri-apps/plugin-updater
+  relaunch           from @tauri-apps/plugin-process
+  ask                from @tauri-apps/plugin-dialog
+  APP_NAME, APP_VERSION from @/lib/constants
+  isVersionNewer     from @/lib/semver
+  useUiStore         — dialog phase state
+  useDocumentStore   — optional: unsaved work guard (adapt or remove in new app)
+
+PHASES (maps to UpdateDialogPhase in shared/types.ts):
+  idle → checking → up_to_date | downloading → installing | error
+
+LOGIC (replicate exactly unless noted):
+
+  async function checkForUpdatesAndApply() {
+    // E2E short-circuit: if import.meta.env.VITE_E2E, mock up-to-date and return.
+
+    openUpdateDialog(); set phase checking.
+
+    try {
+      const update = await check({ allowDowngrades: false });
+
+      if (!update || !isVersionNewer(update.version, APP_VERSION)) {
+        show up_to_date with message including APP_VERSION;
+        return;
+      }
+
+      // Optional app-specific: confirm unsaved changes before downloading.
+      if (user declines) { close dialog; return; }
+
+      set phase downloading;
+      await update.downloadAndInstall((event) => {
+        log Started / Finished events;
+      });
+
+      set phase installing;
+      await relaunch();
+    } catch (err) {
+      if message looks like missing feed (404, not found, invalid release json):
+        show friendly "No update feed is published yet" setup guidance;
+      else:
+        show raw error in dialog;
+    }
+  }
+
+FEED UNAVAILABLE DETECTION (internal helper in updateService.ts):
+  Lowercase message contains any of:
+    - "could not fetch a valid release json"
+    - "failed to fetch"
+    - "404"
+    - "not found"
+
+CUSTOMIZE IN NEW APP
+  - upToDateMessage() — change app name string.
+  - UPDATE_FEED_UNAVAILABLE_MESSAGE — change tag example and secret names.
+  - confirmDiscardUnsavedChanges() — remove or adapt to your editor's dirty state.
+  - Logging calls — optional; keep structure if you have a log system.
+
+-------------------------------------------------------------------------------
+10. SEMVER HELPER — src/lib/semver.ts
+-------------------------------------------------------------------------------
+
+Replicate this file verbatim in new projects:
+
+  parseSemver(version: string): [major, minor, patch] | null
+    - Strip v/V prefix.
+    - Strip pre-release (after -) and build metadata (after +).
+    - Require 2 or 3 dot-separated numeric parts.
+    - Missing patch → 0.
+
+  isVersionNewer(candidate, installed): boolean
+    - Lexicographic numeric compare on [major, minor, patch].
+    - Returns false if either parse fails.
+
+Unit tests to include (src/lib/semver.test.ts):
+  - 1.2.0 > 1.1.9
+  - 1.1.0 == 1.1.0 → not newer
+  - v1.2.0 > 1.1.0
+  - 1.2 parses as 1.2.0
+
+-------------------------------------------------------------------------------
+11. UI LAYER
+-------------------------------------------------------------------------------
+
+11.1 TYPES (shared/types.ts or equivalent)
+
+  export type UpdateDialogPhase =
+    | "idle"
+    | "checking"
+    | "up_to_date"
+    | "downloading"
+    | "installing"
+    | "error";
+
+11.2 UI STORE (Zustand example: src/stores/uiStore.ts)
+
+  State:
+    showUpdateDialog: boolean
+    updatePhase: UpdateDialogPhase
+    updateMessage: string
+
+  Actions:
+    openUpdateDialog()  — sets show=true, phase=checking, default message
+    closeUpdateDialog() — resets to idle
+    setUpdateDialog({ phase, message }) — updates during flow
+
+11.3 DIALOG COMPONENT (src/components/help/UpdateDialog.tsx)
+
+  - Renders modal when showUpdateDialog is true.
+  - Title derived from phase (Checking / Downloading / Installing / Up to date / Error).
+  - Shows updateMessage from store.
+  - busy = checking | downloading | installing → hide Close, show helper text.
+  - Non-busy phases → Close button calls closeUpdateDialog.
+
+  Mount once at app root (src/App.tsx):
+    <UpdateDialog />
+
+11.4 MENU ENTRY (src/components/layout/chromeMenuContent.tsx pattern)
+
+  Help menu section:
+    MenuItem onClick={() => void checkForUpdatesAndApply()}
+      label: "Check for updates"
+      testId: "menu-check-updates"
+    Static text: Version {APP_VERSION}
+      testId: "menu-help-version"
+
+  NO startup hook in AppShell — manual only by design.
+
+-------------------------------------------------------------------------------
+12. INSTALLED VERSION CONSTANT — src/lib/constants.ts
+-------------------------------------------------------------------------------
+
+  import pkg from "../../package.json";
+  export const APP_NAME = "Your App Name";
+  export const APP_VERSION = pkg.version;
+
+Vite/TypeScript must allow JSON import (resolveJsonModule in tsconfig).
+Version is baked in at frontend build time — matches package.json at build.
+
+Rust side logs CARGO_PKG_VERSION at startup (from Cargo.toml) — keep in sync.
+
+-------------------------------------------------------------------------------
+13. GITHUB ACTIONS RELEASE WORKFLOW
+-------------------------------------------------------------------------------
+
+FILE: .github/workflows/release.yml
+
+TRIGGERS:
+  push: tags: ["v*"]
+  workflow_dispatch: input tag (default vX.Y.Z)
+
+JOB: windows-latest (this app is Windows-focused)
+
+STEPS (in order):
+  1. checkout
+  2. setup-node (v22), npm ci
+  3. rust toolchain stable
+  4. Enable VBScript for WiX MSI builds (required on Windows 11 24H2+ runners):
+       PowerShell discovers the VBSCRIPT Feature-on-Demand capability and runs
+       Add-WindowsCapability if not already installed. Legacy images fall back to
+       dism /enable-feature. Do NOT use enable-feature alone on windows-latest —
+       it fails with 0x800f080c ("Feature name VBSCRIPT is unknown").
+  5. Normalize signing secrets (trim whitespace; write to GITHUB_ENV via EOF
+     delimiters so base64 keys with = characters are not corrupted)
+  6. tauri-apps/tauri-action@v0 with:
+       env:
+         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+         # TAURI_SIGNING_* set by step 5 from normalized secrets
+       with:
+         tagName: github.ref_name or workflow_dispatch input
+         releaseName: "Your App Name <tag>"
+         releaseDraft: false
+         prerelease: false
+         includeUpdaterJson: true
+         updaterJsonPreferNsis: true
+         args: --bundles nsis,msi
+  7. Optional: verify MSI artifact exists on disk post-build
+
+PUBLISH PROCEDURE (every release):
+  1. Bump all version files to X.Y.Z.
+  2. Commit and push to main.
+  3. git tag vX.Y.Z
+  4. git push origin vX.Y.Z
+  5. Wait for Actions to complete.
+  6. Verify on GitHub → Releases:
+       - Tag vX.Y.Z exists
+       - Assets include latest.json, setup.exe, .sig files, msi
+
+MANUAL RE-RUN:
+  Actions → Release → Run workflow → enter tag vX.Y.Z
+
+-------------------------------------------------------------------------------
+14. LOCAL BUILD STRATEGY — scripts/tauri-build.mjs
+-------------------------------------------------------------------------------
+
+Problem: tauri build with createUpdaterArtifacts:true requires signing secrets.
+Developers often lack the private key locally. Unsigned local builds should still
+produce installers for testing.
+
+Solution: wrapper script that:
+
+  IF TAURI_SIGNING_PRIVATE_KEY is set (or --signed flag reads scripts/tauri-signing.key):
+    Run: tauri build normally (signatures generated).
+  ELSE:
+    Run: tauri build -c '{"bundle":{"createUpdaterArtifacts":false}}'
+    Print hint to use build:win:signed for release-parity builds.
+
+package.json scripts:
+  "build:win": "node scripts/tauri-build.mjs"
+  "build:win:signed": "node scripts/tauri-build.mjs --signed"
+
+Signed local build requires:
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD in environment.
+
+This does NOT affect the installed app's ability to check for updates — only
+whether local build outputs include .sig and latest.json.
+
+-------------------------------------------------------------------------------
+15. TESTING STRATEGY
+-------------------------------------------------------------------------------
+
+15.1 UNIT TESTS — src/services/updateService.test.ts
+
+Mock:
+  @tauri-apps/plugin-updater → check
+  @tauri-apps/plugin-process → relaunch
+  @tauri-apps/plugin-dialog → ask
+
+Cases:
+  1. check returns null → up_to_date, no download
+  2. check returns same version as APP_VERSION → up_to_date (semver guard)
+  3. check returns newer version → downloadAndInstall + relaunch called
+  4. isDirty + user declines ask → dialog closed, no download
+  5. check throws generic error → error phase with message
+  6. check throws "Could not fetch a valid release JSON" → setup guidance message
+
+IMPORTANT: When APP_VERSION in package.json is X.Y.Z, mock "not newer" tests
+must use X.Y.Z and "newer" tests must use a higher version (e.g. X.Y.(Z+1) or
+next minor).
+
+15.2 UI TESTS — UpdateDialog.test.tsx, uiStore.test.ts, MenuBar.test.tsx
+
+  - Dialog titles per phase
+  - Menu item triggers checkForUpdatesAndApply
+  - Version string displayed in Help menu
+
+15.3 E2E — Playwright (browser mode, not native Tauri)
+
+vite.config.ts when VITE_E2E=true:
+  Alias @tauri-apps/plugin-updater → e2e/mocks/tauriUpdater.ts
+  Alias @tauri-apps/plugin-process → e2e/mocks/tauriProcess.ts
+  Define import.meta.env.VITE_E2E = "true"
+
+e2e/mocks/tauriUpdater.ts:
+  export async function check() { return null; }
+
+updateService.ts E2E branch:
+  Skip real check; show up_to_date dialog immediately.
+
+e2e/tests/update.spec.ts:
+  Open Help → Check for updates → expect "Up to date" dialog → verify logs.
+
+15.4 MANUAL QA CHECKLIST
+
+  [ ] Install version N from release .exe
+  [ ] Publish release N+1 with working CI secrets
+  [ ] curl latest.json — version field is N+1
+  [ ] Help → Check for updates — offers download
+  [ ] App restarts on version N+1
+  [ ] Check again — "up to date"
+  [ ] With only source bump (no release) — still shows up to date or feed error
+
+-------------------------------------------------------------------------------
+16. LOGGING (OPTIONAL BUT RECOMMENDED)
+-------------------------------------------------------------------------------
+
+Category: "update" (src/lib/logging/logger.ts)
+
+Log points in updateService.ts:
+  - check started (installedVersion metadata)
+  - up_to_date (installed + remote versions)
+  - update_available
+  - download started / finished
+  - install + relaunch
+  - cancelled (unsaved changes)
+  - feed not published
+  - errors with errorId
+
+userAction strings:
+  check_for_updates, download_update, install_update
+
+Helps debug "user says no update but GitHub has release" cases.
+
+-------------------------------------------------------------------------------
+17. STEP-BY-STEP REPLICATION CHECKLIST FOR A NEW APP
+-------------------------------------------------------------------------------
+
+PHASE A — PROJECT SETUP
+  [ ] Tauri 2 project with TypeScript frontend (Vite + React or similar)
+  [ ] Add npm deps: plugin-updater, plugin-process, plugin-dialog
+  [ ] Add Cargo deps: tauri-plugin-updater, tauri-plugin-process
+  [ ] Register both plugins in lib.rs
+  [ ] Add updater:default and process:default to capabilities
+
+PHASE B — CONFIG
+  [ ] Generate signing key pair WITH -p password flag (section 7 — do not skip)
+  [ ] Run local sign test (section 7) — must pass before GitHub secrets
+  [ ] Set plugins.updater.pubkey in tauri.conf.json (from .key.pub)
+  [ ] Set plugins.updater.endpoints to your GitHub latest.json URL
+  [ ] Set bundle.createUpdaterArtifacts: true
+  [ ] Set bundle.targets (nsis, msi for Windows)
+  [ ] Set windows.installMode: "passive" under plugins.updater if desired
+  [ ] Gitignore scripts/tauri-signing.key (private)
+  [ ] Commit scripts/tauri-signing.key.pub (public reference only)
+
+PHASE C — FRONTEND
+  [ ] Copy/adapt src/lib/semver.ts + tests
+  [ ] Create src/lib/constants.ts with APP_VERSION from package.json
+  [ ] Create src/services/updateService.ts (section 9)
+  [ ] Add UpdateDialogPhase to shared types
+  [ ] Add update dialog state to UI store
+  [ ] Create UpdateDialog component
+  [ ] Mount UpdateDialog in App root
+  [ ] Wire Help → Check for updates menu item
+  [ ] Do NOT add startup auto-check unless you explicitly want it
+
+PHASE D — CI
+  [ ] Copy .github/workflows/release.yml; replace app name and defaults
+  [ ] Local sign test passed (section 7) — then add GitHub secrets
+  [ ] TAURI_SIGNING_PRIVATE_KEY = full scripts/tauri-signing.key contents
+  [ ] TAURI_SIGNING_PRIVATE_KEY_PASSWORD = same password used with -p at generate
+  [ ] Test workflow with a tag push
+
+PHASE E — LOCAL DEV
+  [ ] Add scripts/tauri-build.mjs wrapper (section 14)
+  [ ] Add build:win and build:win:signed npm scripts
+
+PHASE F — TESTS
+  [ ] updateService.test.ts with mocks
+  [ ] semver.test.ts
+  [ ] E2E mocks + update.spec.ts if using Playwright browser E2E
+
+PHASE G — FIRST RELEASE
+  [ ] Align version in package.json, Cargo.toml, tauri.conf.json
+  [ ] Push tag v0.1.0 (or your starting version)
+  [ ] Confirm latest.json accessible at endpoint URL
+  [ ] Install from .exe; verify Help → Check for updates shows up to date
+  [ ] Publish v0.1.1; verify update flow end-to-end
+
+-------------------------------------------------------------------------------
+18. CUSTOMIZATION TABLE (PDF Editor → Your App)
+-------------------------------------------------------------------------------
+
+| This app                    | Replace with                          |
+|-----------------------------|---------------------------------------|
+| PDF Editor                  | Your productName / APP_NAME           |
+| pdfeditor                   | your-app-id / crate name              |
+| com.pdfeditor.desktop       | com.yourco.yourapp identifier         |
+| rattaroaz/pdfeditor         | YOUR_ORG/YOUR_REPO                    |
+| useDocumentStore.isDirty    | your unsaved-state store or remove    |
+| Help menu location          | any menu/button calling updateService |
+| log.update                  | your logger or console                |
+| Windows NSIS+MSI            | macOS .app, Linux AppImage, etc.      |
+
+For macOS/Linux: change bundle.targets, adjust tauri-action runner matrix,
+and ensure latest.json platform keys match (darwin-*, linux-*).
+
+-------------------------------------------------------------------------------
+19. TROUBLESHOOTING GUIDE
+-------------------------------------------------------------------------------
+
+SYMPTOM: "Up to date" but GitHub source shows higher version
+CAUSE:   No GitHub Release for that version; /latest still points at older tag.
+FIX:     Push tag vX.Y.Z and complete Release workflow.
+
+SYMPTOM: Error about release JSON / 404 / not found
+CAUSE:   No releases, or release exists without latest.json asset.
+FIX:     Run release workflow with includeUpdaterJson: true; verify asset upload.
+
+SYMPTOM: CI fails on "Enable VBScript" — DISM 0x800f080c, "Feature name VBSCRIPT is unknown"
+CAUSE:   Windows 11 24H2+ GitHub runners expose VBSCRIPT as a Feature on Demand
+         (capability VBSCRIPT~~~~), not a legacy optional feature. enable-feature
+         is the wrong DISM subcommand on these images.
+FIX:     Use Get-WindowsCapability + Add-WindowsCapability (see release.yml), or
+         manually: dism /online /add-capability /capabilityname:VBSCRIPT~~~~
+
+SYMPTOM: CI fails "Wrong password for that key" / "incorrect updater private key password"
+CAUSE:   Usually NOT a GitHub glitch. Most common causes (in order):
+           1. Password in GitHub secret does not match the private key on disk
+              (e.g. key regenerated without updating secret, or -p omitted at
+              generate so password was never recorded).
+           2. GitHub TAURI_SIGNING_PRIVATE_KEY is stale — old key, wrong file,
+              or .pub / pubkey pasted instead of the private .key file.
+           3. Trailing newline/space on password secret (less common; workflow
+              trims this — see release.yml Normalize step).
+FIX:     Run the local sign test in section 7 FIRST.
+           - If local test fails → regenerate key with -p, update pubkey, update
+             BOTH GitHub secrets, commit .key.pub + tauri.conf.json pubkey.
+           - If local test passes but CI fails → re-copy private key to GitHub
+             secret (entire single-line file, no quotes); verify password secret.
+         Do NOT repeatedly change the GitHub password secret alone if the local
+         key file rejects that password — the key and password are a pair.
+
+SYMPTOM: CI fails before build — signing secrets not set
+CAUSE:   Missing TAURI_SIGNING_PRIVATE_KEY or PASSWORD in repo secrets.
+FIX:     Add both secrets per section 7.
+
+SYMPTOM: Update offered but install fails signature verify
+CAUSE:   pubkey in tauri.conf.json does not match private key that signed release.
+FIX:     Regenerate keys or fix pubkey; rebuild and re-release ALL artifacts.
+
+SYMPTOM: Installed 1.2.0, latest.json says 1.1.6, shows up to date
+CAUSE:   Expected — feed is OLDER than installed (semver guard).
+FIX:     Publish release >= 1.2.0.
+
+SYMPTOM: check returns update but app does not download
+CAUSE:   isVersionNewer returned false (same or older version).
+FIX:     Ensure latest.json version field is strictly greater than installed.
+
+SYMPTOM: Local npm run build:win fails on signing
+CAUSE:   createUpdaterArtifacts true without key.
+FIX:     Use tauri-build.mjs wrapper that disables artifacts when unsigned.
+
+SYMPTOM: User cancelled update
+CAUSE:   Unsaved changes dialog returned false.
+FIX:     Expected; user must save or confirm discard.
+
+-------------------------------------------------------------------------------
+20. REFERENCE — KEY FILE PATHS IN THIS APP
+-------------------------------------------------------------------------------
+
+Config & backend:
+  src-tauri/tauri.conf.json          — version, updater pubkey, endpoints, bundles
+  src-tauri/Cargo.toml               — Rust crate version
+  src-tauri/src/lib.rs               — plugin registration
+  src-tauri/capabilities/default.json — updater + process permissions
+
+Frontend:
+  src/services/updateService.ts      — main update orchestration
+  src/lib/semver.ts                  — version comparison
+  src/lib/constants.ts               — APP_VERSION
+  src/components/help/UpdateDialog.tsx
+  src/stores/uiStore.ts              — dialog state
+  src/components/layout/chromeMenuContent.tsx — Help menu trigger
+  src/App.tsx                        — mounts UpdateDialog
+
+CI & scripts:
+  .github/workflows/release.yml
+  scripts/tauri-build.mjs
+  scripts/tauri-signing.key          — PRIVATE (gitignored in production setups)
+  scripts/tauri-signing.key.pub      — public key reference
+
+Tests:
+  src/services/updateService.test.ts
+  src/lib/semver.test.ts
+  src/components/help/UpdateDialog.test.tsx
+  e2e/mocks/tauriUpdater.ts
+  e2e/tests/update.spec.ts
+
+Docs:
+  README.md (Publish an update section)
+  docs/install-windows.md (signed vs unsigned local builds)
+
+-------------------------------------------------------------------------------
+21. MINIMAL updateService.ts SKELETON (copy starter)
+-------------------------------------------------------------------------------
+
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { APP_VERSION } from "@/lib/constants";
+import { isVersionNewer } from "@/lib/semver";
+
+export async function checkForUpdatesAndApply(): Promise<void> {
+  // 1. Open your UI dialog (checking)
+  try {
+    const update = await check({ allowDowngrades: false });
+    if (!update || !isVersionNewer(update.version, APP_VERSION)) {
+      // 2. Show up-to-date UI
+      return;
+    }
+    // 3. Optional: confirm destructive action
+    // 4. Show downloading UI
+    await update.downloadAndInstall();
+    // 5. Show installing UI
+    await relaunch();
+  } catch (e) {
+    // 6. Show error UI (detect missing feed vs other)
+  }
+}
+
+Expand with logging, unsaved-changes guard, E2E bypass, and store wiring as in
+the full implementation (src/services/updateService.ts in this repo).
+
+-------------------------------------------------------------------------------
+22. SECURITY NOTES
+-------------------------------------------------------------------------------
+
+  - Private signing key only in CI secrets and secure local env — never in git.
+  - pubkey in tauri.conf.json is public by design.
+  - Updater only installs artifacts passing signature verification.
+  - HTTPS endpoint (GitHub) — no custom TLS pinning in this implementation.
+  - allowDowngrades: false prevents malicious/downgrade feeds from older releases
+    being forced; combined with semver guard on the TypeScript side.
+  - GITHUB_TOKEN in Actions is standard for uploading release assets.
+  - release.yml must grant `permissions: contents: write` so tauri-action can
+    create GitHub releases. Without it: "Resource not accessible by integration"
+    when creating the release. If org policy restricts default token permissions,
+    also set repo Settings → Actions → General → Workflow permissions →
+    "Read and write permissions".
+
+================================================================================
+END OF DOCUMENT — version of reference implementation: app release 1.2.1
+================================================================================

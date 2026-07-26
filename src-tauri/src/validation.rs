@@ -45,6 +45,23 @@ pub fn torrent_total_bytes(bytes: &[u8]) -> Result<u64, String> {
     Ok(lengths.total_length())
 }
 
+/// 40-char hex info hash from a magnet URI (for per-torrent settings lookup before add).
+pub fn info_hash_hex_from_magnet(raw: &str) -> Result<String, String> {
+    validate_magnet_uri(raw)?;
+    let m = Magnet::parse(raw.trim()).map_err(|e| format!("invalid magnet: {e}"))?;
+    m.as_id20()
+        .map(|id| id.as_string())
+        .ok_or_else(|| "magnet is missing btih info hash".into())
+}
+
+/// 40-char hex info hash from `.torrent` bytes.
+pub fn info_hash_hex_from_torrent_bytes(bytes: &[u8]) -> Result<String, String> {
+    validate_torrent_bytes(bytes)?;
+    let meta =
+        torrent_from_bytes::<ByteBuf>(bytes).map_err(|e| format!("invalid torrent file: {e}"))?;
+    Ok(meta.info_hash.as_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
