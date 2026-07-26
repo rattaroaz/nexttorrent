@@ -1,9 +1,7 @@
 import { ask } from "@tauri-apps/plugin-dialog";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check } from "@tauri-apps/plugin-updater";
 
+import { updaterCheckFeed, updaterDownloadAndInstall } from "../ipc/client";
 import { APP_NAME, APP_VERSION } from "../lib/constants";
-import { isVersionNewer } from "../lib/semver";
 import { formatInvokeError } from "../ipc/invokeError";
 import {
   closeUpdateDialog,
@@ -26,6 +24,7 @@ export function isUpdateFeedUnavailable(message: string): boolean {
   return (
     m.includes("could not fetch a valid release json") ||
     m.includes("failed to fetch") ||
+    m.includes("error sending request") ||
     m.includes("404") ||
     m.includes("not found")
   );
@@ -37,7 +36,8 @@ export type CheckForUpdatesOptions = {
 };
 
 /**
- * Manual update check: fetch signed latest.json, confirm, download, install, relaunch.
+ * Manual update check: fetch signed latest.json via app HTTP client, confirm,
+ * download, verify minisign, install, exit for relaunch.
  * Never runs automatically on startup.
  */
 export async function checkForUpdatesAndApply(
@@ -56,9 +56,9 @@ export async function checkForUpdatesAndApply(
   log(`Checking for updates (installed ${APP_VERSION})…`);
 
   try {
-    const update = await check({ allowDowngrades: false });
+    const result = await updaterCheckFeed();
 
-    if (!update || !isVersionNewer(update.version, APP_VERSION)) {
+    if (result.status !== "available" || !result.remoteVersion) {
       const msg = upToDateMessage();
       setUpdateDialog({ phase: "up_to_date", message: msg });
       log(msg);
@@ -66,8 +66,7 @@ export async function checkForUpdatesAndApply(
     }
 
     const ok = await ask(
-      `Version ${update.version} is available` +
-        (update.date ? ` (${update.date})` : "") +
+      `Version ${result.remoteVersion} is available` +
         `. Download and install now?\n\n${APP_NAME} will restart after install.`,
       { title: "Update available", kind: "info" },
     );
@@ -77,26 +76,28 @@ export async function checkForUpdatesAndApply(
       return;
     }
 
+    if (!result.downloadUrl || !result.signature) {
+      throw new Error("Update metadata is missing download URL or signature.");
+    }
+
     setUpdateDialog({
       phase: "downloading",
-      message: `Downloading ${update.version}…`,
+      message: `Downloading ${result.remoteVersion}…`,
     });
-    log(`Downloading update ${update.version}…`);
+    log(`Downloading update ${result.remoteVersion}…`);
 
-    await update.downloadAndInstall((event) => {
-      if (event.event === "Started") {
-        log("Update download started.");
-      } else if (event.event === "Finished") {
-        log("Update download finished.");
-      }
-    });
+    // Process exits after launching the installer (same as tauri-plugin-updater).
+    await updaterDownloadAndInstall(
+      result.downloadUrl,
+      result.signature,
+      result.remoteVersion,
+    );
 
     setUpdateDialog({
       phase: "installing",
       message: "Installing update and restarting…",
     });
-    log(`Update ${update.version} installed — relaunching.`);
-    await relaunch();
+    log(`Update ${result.remoteVersion} installed — relaunching.`);
   } catch (e) {
     const raw = formatInvokeError(e);
     const message = isUpdateFeedUnavailable(raw)

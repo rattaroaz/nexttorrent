@@ -40,7 +40,18 @@ export const IPC_COMMANDS = {
   watchPoll: "watch_poll",
   getActivityLog: "get_activity_log",
   openLogsFolder: "open_logs_folder",
+  updaterCheckFeed: "updater_check_feed",
+  updaterDownloadAndInstall: "updater_download_and_install",
 } as const;
+
+export type UpdaterCheckResult = {
+  status: "up_to_date" | "available" | string;
+  installedVersion: string;
+  remoteVersion?: string | null;
+  notes?: string | null;
+  downloadUrl?: string | null;
+  signature?: string | null;
+};
 
 export const IPC_EVENTS = {
   sessionReady: "session:ready",

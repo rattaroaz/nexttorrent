@@ -12,6 +12,7 @@ import {
   type TorrentDetails,
   type TorrentRow,
   type TorrentsUpdatePayload,
+  type UpdaterCheckResult,
 } from "./contracts";
 
 export async function quitApp(): Promise<void> {
@@ -206,6 +207,22 @@ export async function getActivityLog(
 /** Open the OS config directory that holds nexttorrent.log / nexttorrent-diag.log. */
 export async function openLogsFolder(): Promise<string> {
   return invoke(IPC_COMMANDS.openLogsFolder);
+}
+
+export async function updaterCheckFeed(): Promise<UpdaterCheckResult> {
+  return invoke(IPC_COMMANDS.updaterCheckFeed);
+}
+
+export async function updaterDownloadAndInstall(
+  downloadUrl: string,
+  signature: string,
+  version: string,
+): Promise<void> {
+  return invoke(IPC_COMMANDS.updaterDownloadAndInstall, {
+    downloadUrl,
+    signature,
+    version,
+  });
 }
 
 export async function watchPoll(): Promise<number> {

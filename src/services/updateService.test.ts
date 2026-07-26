@@ -5,16 +5,14 @@ import {
   isUpdateFeedUnavailable,
 } from "./updateService";
 
-const checkMock = vi.fn();
-const relaunchMock = vi.fn();
+const checkFeedMock = vi.fn();
+const downloadInstallMock = vi.fn();
 const askMock = vi.fn();
 
-vi.mock("@tauri-apps/plugin-updater", () => ({
-  check: (...args: unknown[]) => checkMock(...args),
-}));
-
-vi.mock("@tauri-apps/plugin-process", () => ({
-  relaunch: (...args: unknown[]) => relaunchMock(...args),
+vi.mock("../ipc/client", () => ({
+  updaterCheckFeed: (...args: unknown[]) => checkFeedMock(...args),
+  updaterDownloadAndInstall: (...args: unknown[]) =>
+    downloadInstallMock(...args),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -29,6 +27,7 @@ describe("isUpdateFeedUnavailable", () => {
       ),
     ).toBe(true);
     expect(isUpdateFeedUnavailable("failed to fetch endpoint")).toBe(true);
+    expect(isUpdateFeedUnavailable("error sending request for url")).toBe(true);
     expect(isUpdateFeedUnavailable("HTTP 404")).toBe(true);
     expect(isUpdateFeedUnavailable("asset not found")).toBe(true);
     expect(isUpdateFeedUnavailable("signature mismatch")).toBe(false);
@@ -37,27 +36,32 @@ describe("isUpdateFeedUnavailable", () => {
 
 describe("checkForUpdatesAndApply", () => {
   beforeEach(() => {
-    checkMock.mockReset();
-    relaunchMock.mockReset();
+    checkFeedMock.mockReset();
+    downloadInstallMock.mockReset();
     askMock.mockReset();
     vi.resetModules();
   });
 
-  it("shows up to date when no update object", async () => {
-    checkMock.mockResolvedValueOnce(null);
+  it("shows up to date when feed status is up_to_date", async () => {
+    checkFeedMock.mockResolvedValueOnce({
+      status: "up_to_date",
+      installedVersion: "1.1.0",
+      remoteVersion: "1.1.0",
+    });
     const { checkForUpdatesAndApply } = await import("./updateService");
     const { getUpdateUiState } = await import("./updateUi");
     await checkForUpdatesAndApply();
-    expect(checkMock).toHaveBeenCalledWith({ allowDowngrades: false });
+    expect(checkFeedMock).toHaveBeenCalled();
     expect(getUpdateUiState().phase).toBe("up_to_date");
     expect(askMock).not.toHaveBeenCalled();
-    expect(relaunchMock).not.toHaveBeenCalled();
+    expect(downloadInstallMock).not.toHaveBeenCalled();
   });
 
-  it("refuses equal or older remote versions", async () => {
-    checkMock.mockResolvedValueOnce({
-      version: "0.1.0",
-      downloadAndInstall: vi.fn(),
+  it("refuses when status is not available", async () => {
+    checkFeedMock.mockResolvedValueOnce({
+      status: "up_to_date",
+      installedVersion: "1.1.0",
+      remoteVersion: "0.1.0",
     });
     const { checkForUpdatesAndApply } = await import("./updateService");
     const { getUpdateUiState } = await import("./updateUi");
@@ -66,21 +70,27 @@ describe("checkForUpdatesAndApply", () => {
     expect(askMock).not.toHaveBeenCalled();
   });
 
-  it("downloads, installs, and relaunches when user confirms", async () => {
-    const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
-    checkMock.mockResolvedValueOnce({
-      version: "9.9.9",
-      downloadAndInstall,
+  it("downloads and installs when user confirms", async () => {
+    checkFeedMock.mockResolvedValueOnce({
+      status: "available",
+      installedVersion: "1.0.0",
+      remoteVersion: "9.9.9",
+      downloadUrl: "https://example.com/setup.exe",
+      signature: "sig",
     });
     askMock.mockResolvedValueOnce(true);
+    downloadInstallMock.mockResolvedValueOnce(undefined);
     const { checkForUpdatesAndApply } = await import("./updateService");
     await checkForUpdatesAndApply();
-    expect(downloadAndInstall).toHaveBeenCalled();
-    expect(relaunchMock).toHaveBeenCalled();
+    expect(downloadInstallMock).toHaveBeenCalledWith(
+      "https://example.com/setup.exe",
+      "sig",
+      "9.9.9",
+    );
   });
 
   it("maps missing feed errors to setup guidance", async () => {
-    checkMock.mockRejectedValueOnce(
+    checkFeedMock.mockRejectedValueOnce(
       new Error("failed to fetch: 404 not found"),
     );
     const { checkForUpdatesAndApply } = await import("./updateService");

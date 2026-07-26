@@ -19,6 +19,7 @@ mod state;
 mod torrent_commands;
 mod trace_layer;
 mod tray;
+mod updater_http;
 mod validation;
 mod watch_folder;
 
@@ -166,6 +167,8 @@ pub fn run() {
             magnet_handler::spawn_launch_add_request(app, req);
         }))
         .plugin(tauri_plugin_deep_link::init())
+        // Keep the plugin registered for capabilities. Feed fetch/install uses
+        // `updater_http` because the plugin HTTP client fails on some Windows hosts.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
@@ -294,6 +297,8 @@ pub fn run() {
             commands::get_activity_log,
             commands::open_logs_folder,
             commands::resolve_download_path,
+            updater_http::updater_check_feed,
+            updater_http::updater_download_and_install,
             torrent_commands::torrent_list_full,
             torrent_commands::torrent_build_update_payload,
             torrent_commands::torrent_add_magnet,
