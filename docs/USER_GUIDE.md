@@ -80,14 +80,15 @@ Configure `plugins.updater.pubkey` and `endpoints` in `src-tauri/tauri.conf.json
 
 Nexttorrent keeps several log surfaces for troubleshooting:
 
-| Location                                | Purpose                                                             |
-| --------------------------------------- | ------------------------------------------------------------------- |
-| **Logs** side panel / **Activity** tab  | UI session messages plus live backend trace lines                   |
-| **`nexttorrent.log`** (config dir)      | Persistent INFO/WARN/ERROR session log (batched writes; timestamps) |
-| **`nexttorrent-diag.log`** (config dir) | Command failures and fatal startup errors                           |
+| Location                                             | Purpose                                                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------- |
+| **Logs** side panel / **Activity** tab               | UI session messages plus live backend trace lines                               |
+| **`nexttorrent.log`** (config dir)                   | Persistent INFO/WARN/ERROR session log (batched writes; timestamps)             |
+| **`nexttorrent-diag.log`** (config dir)              | Command failures and fatal startup errors                                       |
+| **`ai-brief.json`** / **`nexttorrent-events.jsonl`** | AI-oriented structured diagnostics (see [AI_DIAGNOSTICS.md](AI_DIAGNOSTICS.md)) |
 
 Default Rust filter is `info,librqbit=warn,librqbit_core=warn` so engine chatter stays out of the activity log. Override with the `RUST_LOG` environment variable (for example `RUST_LOG=librqbit=debug`).
 
 On Windows the config directory is typically under `%APPDATA%` for the app identifier. Use **Settings → Open logs folder…** or **Logs → Open folder** to reveal it in the file manager.
 
-To share logs with support: open the Logs panel, copy the text, or attach `nexttorrent.log` and `nexttorrent-diag.log` from the config folder. Use **Export backup** in Settings for a full settings + session archive (not a log bundle).
+**For AI / support:** use **View logs → Copy AI brief** or **Export for AI**. Agents should read `ai-brief.json` first, then match `corr` in `nexttorrent-events.jsonl`. Use **Export backup** in Settings for a full settings + session archive (not a log bundle).

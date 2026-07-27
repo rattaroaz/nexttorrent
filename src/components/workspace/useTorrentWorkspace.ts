@@ -24,6 +24,8 @@ import {
   importConfigurationBundle,
   listNetworkInterfaces,
   openLogsFolder,
+  getAiBrief,
+  exportAiDiagnostics,
   saveNexttorrentSettings,
   torrentAddFile,
   torrentAddMagnet,
@@ -780,6 +782,30 @@ export function useTorrentWorkspace() {
     }
   };
 
+  const copyAiBriefAction = async () => {
+    const brief = await runLogged("Copy AI brief", log, getAiBrief);
+    if (!brief) {
+      return;
+    }
+    try {
+      await writeText(brief);
+      log("AI brief copied to clipboard (also written to ai-brief.json).");
+    } catch (e) {
+      log(`Copy AI brief failed: ${formatInvokeError(e)}`);
+    }
+  };
+
+  const exportAiDiagnosticsAction = async () => {
+    const path = await runLogged(
+      "Export AI diagnostics",
+      log,
+      exportAiDiagnostics,
+    );
+    if (path) {
+      log(`Exported AI diagnostics: ${path}`);
+    }
+  };
+
   const checkForUpdates = async () => {
     await checkForUpdatesAndApply({ log });
   };
@@ -1100,6 +1126,8 @@ export function useTorrentWorkspace() {
     exportBackup,
     importBackup,
     openLogsFolderAction,
+    copyAiBriefAction,
+    exportAiDiagnosticsAction,
     checkForUpdates,
     saveSettings,
     pickTorrentFile,

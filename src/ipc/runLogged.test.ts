@@ -1,8 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("./client", () => ({
+  logFrontendEvent: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { runLogged, runLoggedVoid } from "./runLogged";
 
 describe("runLogged", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("returns result on success", async () => {
     const log = vi.fn();
     const out = await runLogged("test", log, async () => 42);
@@ -16,7 +24,9 @@ describe("runLogged", () => {
       throw new Error("disk full");
     });
     expect(out).toBeUndefined();
-    expect(log).toHaveBeenCalledWith("save settings failed: disk full");
+    expect(log.mock.calls[0]?.[0]).toMatch(
+      /^save settings failed: disk full corr=[0-9a-f]{8}$/,
+    );
   });
 
   it("runLoggedVoid logs async failures", async () => {
@@ -25,6 +35,8 @@ describe("runLogged", () => {
       throw "nope";
     });
     await new Promise((r) => setTimeout(r, 0));
-    expect(log).toHaveBeenCalledWith("pause failed: nope");
+    expect(log.mock.calls[0]?.[0]).toMatch(
+      /^pause failed: nope corr=[0-9a-f]{8}$/,
+    );
   });
 });

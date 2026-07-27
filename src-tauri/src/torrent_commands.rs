@@ -36,11 +36,23 @@ fn map_cmd_err(state: &AppState, command: &'static str, msg: String) -> String {
         tracing::debug!(command = command, detail = %msg, "benign torrent state");
         return msg;
     }
-    tracing::warn!(command = command, error = %msg, "tauri command failed");
     if let Some(dir) = state.settings_path.parent() {
-        let _ = crate::diag_log::append_failure(dir, command, &msg);
+        crate::diag_log::set_config_dir(dir.to_path_buf());
     }
-    msg
+    let corr = crate::diag_log::emit_failure(
+        "ipc",
+        "ipc_command_failed",
+        &msg,
+        [("command".into(), command.to_string())],
+    );
+    tracing::warn!(
+        ai_skip = true,
+        command = command,
+        error = %msg,
+        corr = %corr,
+        "tauri command failed"
+    );
+    format!("{msg} corr={corr}")
 }
 
 async fn pause_torrent_action(

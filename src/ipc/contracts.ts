@@ -42,6 +42,9 @@ export const IPC_COMMANDS = {
   openLogsFolder: "open_logs_folder",
   updaterCheckFeed: "updater_check_feed",
   updaterDownloadAndInstall: "updater_download_and_install",
+  getAiBrief: "get_ai_brief",
+  exportAiDiagnostics: "export_ai_diagnostics",
+  logFrontendEvent: "log_frontend_event",
 } as const;
 
 export type UpdaterCheckResult = {

@@ -16,6 +16,9 @@ import {
   torrentUpdateOnlyFiles,
   updaterCheckFeed,
   updaterDownloadAndInstall,
+  getAiBrief,
+  exportAiDiagnostics,
+  logFrontendEvent,
 } from "./client";
 import { IPC_COMMANDS } from "./contracts";
 
@@ -123,5 +126,28 @@ describe("ipc invoke payloads (camelCase for Tauri 2)", () => {
         version: "1.2.0",
       },
     );
+  });
+
+  it("getAiBrief invokes without payload", async () => {
+    vi.mocked(core.invoke).mockResolvedValue("{}");
+    await getAiBrief();
+    expect(core.invoke).toHaveBeenCalledWith(IPC_COMMANDS.getAiBrief);
+  });
+
+  it("exportAiDiagnostics invokes without payload", async () => {
+    vi.mocked(core.invoke).mockResolvedValue("C:\\out.zip");
+    await exportAiDiagnostics();
+    expect(core.invoke).toHaveBeenCalledWith(IPC_COMMANDS.exportAiDiagnostics);
+  });
+
+  it("logFrontendEvent passes camelCase keys", async () => {
+    vi.mocked(core.invoke).mockResolvedValue(undefined);
+    await logFrontendEvent("ipc_invoke_failed", "boom", "abcd1234", "pause");
+    expect(core.invoke).toHaveBeenCalledWith(IPC_COMMANDS.logFrontendEvent, {
+      event: "ipc_invoke_failed",
+      message: "boom",
+      corr: "abcd1234",
+      command: "pause",
+    });
   });
 });

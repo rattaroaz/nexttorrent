@@ -42,6 +42,9 @@ const COMMAND_TO_EXPORT: Record<string, keyof typeof client> = {
   [IPC_COMMANDS.openLogsFolder]: "openLogsFolder",
   [IPC_COMMANDS.updaterCheckFeed]: "updaterCheckFeed",
   [IPC_COMMANDS.updaterDownloadAndInstall]: "updaterDownloadAndInstall",
+  [IPC_COMMANDS.getAiBrief]: "getAiBrief",
+  [IPC_COMMANDS.exportAiDiagnostics]: "exportAiDiagnostics",
+  [IPC_COMMANDS.logFrontendEvent]: "logFrontendEvent",
 };
 
 describe("client exports", () => {

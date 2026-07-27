@@ -13,7 +13,15 @@ pub fn fallback_config_dir() -> PathBuf {
 pub fn report_fatal_startup(msg: &str) {
     let dir = fallback_config_dir();
     let _ = std::fs::create_dir_all(&dir);
-    let _ = crate::diag_log::append_failure(&dir, "fatal", msg);
+    crate::diag_log::set_config_dir(dir.clone());
+    let event = if msg.starts_with("panic:") {
+        "panic"
+    } else {
+        "fatal_startup"
+    };
+    let corr = crate::diag_log::emit_failure("startup", event, msg, []);
+    tracing::error!(ai_skip = true, corr = %corr, fatal = %msg, "fatal startup");
+    let _ = dir;
     #[cfg(windows)]
     show_windows_alert(msg);
 }

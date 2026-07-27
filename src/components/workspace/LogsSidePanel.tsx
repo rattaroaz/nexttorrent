@@ -7,6 +7,8 @@ type Props = {
   level: LogLevelFilter;
   onLevelChange: (level: LogLevelFilter) => void;
   onOpenLogsFolder?: () => void;
+  onCopyAiBrief?: () => void;
+  onExportAiDiagnostics?: () => void;
   onClose: () => void;
 };
 
@@ -16,6 +18,8 @@ export function LogsSidePanel({
   level,
   onLevelChange,
   onOpenLogsFolder,
+  onCopyAiBrief,
+  onExportAiDiagnostics,
   onClose,
 }: Props) {
   return (
@@ -37,12 +41,32 @@ export function LogsSidePanel({
             ))}
           </select>
         </label>
+        {onCopyAiBrief ? (
+          <button
+            type="button"
+            onClick={onCopyAiBrief}
+            data-testid="logs-copy-ai-brief"
+            title="Copy ai-brief.json for an AI assistant"
+          >
+            Copy AI brief
+          </button>
+        ) : null}
+        {onExportAiDiagnostics ? (
+          <button
+            type="button"
+            onClick={onExportAiDiagnostics}
+            data-testid="logs-export-ai"
+            title="Export zip with ai-brief.json and event logs"
+          >
+            Export for AI
+          </button>
+        ) : null}
         {onOpenLogsFolder ? (
           <button
             type="button"
             onClick={onOpenLogsFolder}
             data-testid="logs-open-folder"
-            title="Open folder containing nexttorrent.log"
+            title="Open folder containing logs and ai-brief.json"
           >
             Open folder
           </button>

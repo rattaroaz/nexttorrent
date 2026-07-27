@@ -143,6 +143,8 @@ export function TorrentWorkspace() {
             sessionLines={ws.activity}
             level={ws.logLevelFilter}
             onLevelChange={ws.setLogLevelFilter}
+            onCopyAiBrief={() => void ws.copyAiBriefAction()}
+            onExportAiDiagnostics={() => void ws.exportAiDiagnosticsAction()}
             onOpenLogsFolder={() => void ws.openLogsFolderAction()}
             onClose={() => ws.setLogsPanelOpen(false)}
           />

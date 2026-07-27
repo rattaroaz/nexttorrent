@@ -100,6 +100,11 @@ fn format_reqwest_error(err: &reqwest::Error) -> String {
     msg
 }
 
+fn fail_updater(event: &str, message: String, fields: Vec<(String, String)>) -> String {
+    let corr = crate::diag_log::emit_failure("updater_http", event, &message, fields);
+    format!("{message} corr={corr}")
+}
+
 async fn fetch_release(client: &reqwest::Client) -> Result<RemoteRelease, String> {
     let response = client
         .get(UPDATE_ENDPOINT)
@@ -110,19 +115,33 @@ async fn fetch_release(client: &reqwest::Client) -> Result<RemoteRelease, String
         )
         .send()
         .await
-        .map_err(|e| format!("failed to fetch update feed: {}", format_reqwest_error(&e)))?;
+        .map_err(|e| {
+            fail_updater(
+                "feed_fetch_failed",
+                format!("failed to fetch update feed: {}", format_reqwest_error(&e)),
+                vec![("url".into(), UPDATE_ENDPOINT.into())],
+            )
+        })?;
 
     let status = response.status();
     if !status.is_success() {
-        return Err(format!(
-            "update feed returned HTTP {status} for {UPDATE_ENDPOINT}"
+        return Err(fail_updater(
+            "feed_fetch_failed",
+            format!("update feed returned HTTP {status} for {UPDATE_ENDPOINT}"),
+            vec![
+                ("url".into(), UPDATE_ENDPOINT.into()),
+                ("status".into(), status.as_u16().to_string()),
+            ],
         ));
     }
 
-    response
-        .json::<RemoteRelease>()
-        .await
-        .map_err(|e| format!("invalid update feed JSON: {}", format_reqwest_error(&e)))
+    response.json::<RemoteRelease>().await.map_err(|e| {
+        fail_updater(
+            "feed_fetch_failed",
+            format!("invalid update feed JSON: {}", format_reqwest_error(&e)),
+            vec![("url".into(), UPDATE_ENDPOINT.into())],
+        )
+    })
 }
 
 fn verify_signature(data: &[u8], release_signature: &str, pub_key: &str) -> Result<(), String> {
@@ -142,9 +161,13 @@ fn verify_signature(data: &[u8], release_signature: &str, pub_key: &str) -> Resu
     let signature =
         Signature::decode(sig_str).map_err(|e| format!("invalid release signature: {e}"))?;
 
-    public_key
-        .verify(data, &signature, true)
-        .map_err(|e| format!("updater signature verification failed: {e}"))
+    public_key.verify(data, &signature, true).map_err(|e| {
+        fail_updater(
+            "signature_failed",
+            format!("updater signature verification failed: {e}"),
+            vec![],
+        )
+    })
 }
 
 #[tauri::command]
@@ -170,7 +193,11 @@ pub async fn updater_check_feed(state: State<'_, AppState>) -> Result<UpdaterChe
     }
 
     let artifact = pick_windows_artifact(&release.platforms).ok_or_else(|| {
-        "update feed has no Windows installer artifact (windows-x86_64-nsis / msi)".to_string()
+        fail_updater(
+            "feed_fetch_failed",
+            "update feed has no Windows installer artifact (windows-x86_64-nsis / msi)".to_string(),
+            vec![("remoteVersion".into(), release.version.clone())],
+        )
     })?;
 
     Ok(UpdaterCheckResult {
@@ -206,12 +233,33 @@ pub async fn updater_download_and_install(
         )
         .send()
         .await
-        .map_err(|e| format!("failed to download update: {}", format_reqwest_error(&e)))?
+        .map_err(|e| {
+            fail_updater(
+                "download_failed",
+                format!("failed to download update: {}", format_reqwest_error(&e)),
+                vec![
+                    ("url".into(), download_url.clone()),
+                    ("version".into(), version.clone()),
+                ],
+            )
+        })?
         .error_for_status()
-        .map_err(|e| format!("update download HTTP error: {}", format_reqwest_error(&e)))?
+        .map_err(|e| {
+            fail_updater(
+                "download_failed",
+                format!("update download HTTP error: {}", format_reqwest_error(&e)),
+                vec![("url".into(), download_url.clone())],
+            )
+        })?
         .bytes()
         .await
-        .map_err(|e| format!("failed to read update bytes: {}", format_reqwest_error(&e)))?;
+        .map_err(|e| {
+            fail_updater(
+                "download_failed",
+                format!("failed to read update bytes: {}", format_reqwest_error(&e)),
+                vec![("url".into(), download_url.clone())],
+            )
+        })?;
 
     verify_signature(&bytes, &signature, UPDATER_PUBKEY)?;
     tracing::info!(bytes = bytes.len(), "update signature verified");
@@ -230,7 +278,13 @@ pub async fn updater_download_and_install(
     };
     std::fs::write(&installer_path, &bytes).map_err(|e| e.to_string())?;
 
-    launch_windows_installer(&installer_path)?;
+    launch_windows_installer(&installer_path).map_err(|e| {
+        fail_updater(
+            "installer_launch_failed",
+            e,
+            vec![("version".into(), version.clone())],
+        )
+    })?;
     // NSIS/MSI take over; match tauri-plugin-updater and exit this process.
     std::process::exit(0);
 }

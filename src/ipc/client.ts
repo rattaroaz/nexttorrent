@@ -225,6 +225,28 @@ export async function updaterDownloadAndInstall(
   });
 }
 
+export async function getAiBrief(): Promise<string> {
+  return invoke(IPC_COMMANDS.getAiBrief);
+}
+
+export async function exportAiDiagnostics(): Promise<string> {
+  return invoke(IPC_COMMANDS.exportAiDiagnostics);
+}
+
+export async function logFrontendEvent(
+  event: string,
+  message: string,
+  corr?: string | null,
+  command?: string | null,
+): Promise<void> {
+  return invoke(IPC_COMMANDS.logFrontendEvent, {
+    event,
+    message,
+    corr: corr ?? null,
+    command: command ?? null,
+  });
+}
+
 export async function watchPoll(): Promise<number> {
   return invoke(IPC_COMMANDS.watchPoll);
 }

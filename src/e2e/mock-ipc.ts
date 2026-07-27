@@ -79,6 +79,16 @@ export function installE2eMocks(): void {
             diagFileLines: [],
             sessionFileLines: [],
           };
+        case "get_ai_brief":
+          return JSON.stringify({
+            v: 1,
+            howToUse: "e2e mock",
+            recentErrors: [],
+          });
+        case "export_ai_diagnostics":
+          return "C:\\mock\\nexttorrent-ai-diagnostics.zip";
+        case "log_frontend_event":
+          return null;
         case "list_network_interfaces":
           return [{ name: "eth0", receivedBytes: 0, transmittedBytes: 0 }];
         default:

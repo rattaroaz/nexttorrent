@@ -1,40 +1,26 @@
-//! Tracing layer that mirrors log lines into the in-memory Activity buffer.
+//! Tracing layer that mirrors INFO+ events into structured diagnostics + Activity UI.
+
+use std::collections::BTreeMap;
 
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::Layer;
 
+use crate::diag_event::{DiagEvent, DiagLevel};
 use crate::diag_log;
 
 struct EventVisitor {
     message: String,
-    fields: Vec<String>,
+    fields: BTreeMap<String, String>,
 }
 
 impl EventVisitor {
     fn new() -> Self {
         Self {
             message: String::new(),
-            fields: Vec::new(),
+            fields: BTreeMap::new(),
         }
-    }
-
-    fn into_line(self, level: &Level, target: &str) -> String {
-        if !self.message.is_empty() {
-            if self.fields.is_empty() {
-                return format!("{level} {target} — {}", self.message);
-            }
-            return format!(
-                "{level} {target} — {} ({})",
-                self.message,
-                self.fields.join(", ")
-            );
-        }
-        if self.fields.is_empty() {
-            return format!("{level} {target}");
-        }
-        format!("{level} {target} — {}", self.fields.join(", "))
     }
 }
 
@@ -45,8 +31,35 @@ impl Visit for EventVisitor {
         if name == "message" {
             self.message = rendered;
         } else if !rendered.is_empty() {
-            self.fields.push(format!("{name}={rendered}"));
+            self.fields.insert(name.to_string(), rendered);
         }
+    }
+}
+
+fn event_code_from_message(message: &str) -> String {
+    let lower = message.to_ascii_lowercase();
+    let slug: String = lower
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let trimmed = slug.trim_matches('_');
+    let mut out = String::new();
+    let mut prev_us = false;
+    for c in trimmed.chars().take(48) {
+        if c == '_' {
+            if !prev_us && !out.is_empty() {
+                out.push('_');
+                prev_us = true;
+            }
+        } else {
+            out.push(c);
+            prev_us = false;
+        }
+    }
+    if out.is_empty() {
+        "tracing_event".into()
+    } else {
+        out
     }
 }
 
@@ -63,8 +76,29 @@ where
         }
         let mut visitor = EventVisitor::new();
         event.record(&mut visitor);
-        let line = visitor.into_line(level, event.metadata().target());
-        diag_log::push_trace_line(line);
+        // Call sites that also call emit_event/emit_failure set ai_skip to avoid duplicates.
+        if visitor.fields.contains_key("ai_skip") {
+            return;
+        }
+        let target = event.metadata().target();
+        let msg = if visitor.message.is_empty() {
+            visitor
+                .fields
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        } else {
+            visitor.message.clone()
+        };
+        let code = event_code_from_message(&msg);
+        let mut ev =
+            DiagEvent::new(DiagLevel::from(*level), target, code, msg).with_fields(visitor.fields);
+        if let Some(corr) = ev.fields.remove("corr") {
+            ev = ev.with_corr(corr);
+        }
+        // Avoid infinite loop: emit_event must not call tracing.
+        diag_log::emit_event(ev);
     }
 }
 
@@ -79,15 +113,18 @@ mod tests {
     fn captures_warn_level_events() {
         let _guard = Registry::default().with(ActivityTraceLayer).set_default();
 
-        diag_log::push_trace_line("reset-marker".into());
-        let before = diag_log::recent_trace_lines(500).len();
+        let before = diag_log::recent_events(500).len();
 
         tracing::warn!(command = "unit_test", "something failed");
 
-        let lines = diag_log::recent_trace_lines(500);
-        assert!(lines.len() > before);
-        assert!(lines
-            .iter()
-            .any(|l| l.contains("WARN") && l.contains("something failed")));
+        let events = diag_log::recent_events(500);
+        assert!(events.len() > before);
+        assert!(events.iter().any(|e| e.msg.contains("something failed")
+            && e.fields.get("command").map(String::as_str) == Some("unit_test")));
+    }
+
+    #[test]
+    fn event_code_slug() {
+        assert_eq!(event_code_from_message("Hello, World!"), "hello_world");
     }
 }

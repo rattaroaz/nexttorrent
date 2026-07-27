@@ -24,6 +24,8 @@ test.describe("smoke", () => {
     await page.getByTestId("toolbar-view-logs").click();
     await expect(page.getByTestId("logs-side-panel")).toBeVisible();
     await expect(page.getByTestId("logs-level-select")).toBeVisible();
+    await expect(page.getByTestId("logs-copy-ai-brief")).toBeVisible();
+    await expect(page.getByTestId("logs-export-ai")).toBeVisible();
     await page.getByTestId("logs-level-select").selectOption("warn");
     await page.getByTestId("logs-panel-close").click();
     await expect(page.getByTestId("logs-side-panel")).not.toBeVisible();

@@ -435,9 +435,12 @@ export function SettingsDialog({
 
       <h4 className="settings-section">Logs &amp; diagnostics</h4>
       <p className="hint">
-        Session log (<code>nexttorrent.log</code>) and failure log (
-        <code>nexttorrent-diag.log</code>) live in the app config directory.
-        Default filter is <code>info,librqbit=warn</code>; override with{" "}
+        Human logs (<code>nexttorrent.log</code>,{" "}
+        <code>nexttorrent-diag.log</code>) plus AI-oriented{" "}
+        <code>ai-brief.json</code> and <code>nexttorrent-events.jsonl</code>{" "}
+        live in the app config directory. Agents should read{" "}
+        <code>ai-brief.json</code> first (View logs → Copy AI brief). Default
+        filter is <code>info,librqbit=warn</code>; override with{" "}
         <code>RUST_LOG</code>.
       </p>
       <div className="modal-actions">

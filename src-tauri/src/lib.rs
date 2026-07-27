@@ -1,6 +1,8 @@
+mod ai_diagnostics;
 mod cli;
 mod commands;
 mod config_backup;
+mod diag_event;
 mod diag_log;
 mod disk;
 mod engine;
@@ -101,7 +103,13 @@ fn spawn_watch_folder_loop(state: AppState) {
                 continue;
             }
             if let Err(e) = crate::torrent_commands::watch_poll_impl(&bg).await {
-                tracing::error!(error = %e, "watch folder poll failed");
+                let corr = crate::diag_log::emit_failure(
+                    "watch_folder",
+                    "watch_loop_failed",
+                    &e,
+                    [("error".into(), e.clone())],
+                );
+                tracing::error!(ai_skip = true, error = %e, corr = %corr, "watch folder poll failed");
             }
         }
     });
@@ -129,8 +137,27 @@ fn spawn_rss_loop(state: AppState) {
                         messages = r.messages.len(),
                         "rss auto-poll complete"
                     );
+                    for msg in r.messages.iter().take(5) {
+                        crate::diag_log::emit_event(
+                            crate::diag_event::DiagEvent::new(
+                                crate::diag_event::DiagLevel::Warn,
+                                "rss",
+                                "rss_feed_error",
+                                msg,
+                            )
+                            .with_field("source", "auto_poll"),
+                        );
+                    }
                 }
-                Err(e) => tracing::error!(error = %e, "rss auto-poll failed"),
+                Err(e) => {
+                    let corr = crate::diag_log::emit_failure(
+                        "rss",
+                        "rss_loop_failed",
+                        &e,
+                        [("error".into(), e.clone())],
+                    );
+                    tracing::error!(ai_skip = true, error = %e, corr = %corr, "rss auto-poll failed");
+                }
                 _ => {}
             }
         }
@@ -289,6 +316,7 @@ pub fn run() {
                     .map_err(|e| e.to_string())?;
             handle.emit("session:ready", snapshot)?;
             tracing::info!("application ready");
+            let _ = crate::ai_diagnostics::refresh_ai_brief_with_state(&state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -299,6 +327,9 @@ pub fn run() {
             commands::resolve_download_path,
             updater_http::updater_check_feed,
             updater_http::updater_download_and_install,
+            ai_diagnostics::get_ai_brief,
+            ai_diagnostics::export_ai_diagnostics,
+            ai_diagnostics::log_frontend_event,
             torrent_commands::torrent_list_full,
             torrent_commands::torrent_build_update_payload,
             torrent_commands::torrent_add_magnet,
