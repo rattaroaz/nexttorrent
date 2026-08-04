@@ -313,10 +313,14 @@ export function useTorrentWorkspace() {
     }
   }, [payload]);
 
+  // Resolve from the full list so a filtered-away selection still shows details.
   const selectedRow = useMemo(
-    () => displayRows.find((r) => torrentRef(r) === selectedRef) ?? null,
-    [displayRows, selectedRef],
+    () => rows.find((r) => torrentRef(r) === selectedRef) ?? null,
+    [rows, selectedRef],
   );
+  const selectedInfoHash = selectedRow?.info_hash ?? null;
+  const selectedLabel = selectedRow?.label ?? null;
+  const selectedLabelColor = selectedRow?.labelColor ?? null;
 
   const sessionCounts = useMemo(() => {
     let downloading = 0;
@@ -333,7 +337,7 @@ export function useTorrentWorkspace() {
         paused += 1;
       } else if (r.stats?.finished) {
         seeding += 1;
-      } else if (st.includes("live") || st.includes("download") || st) {
+      } else if (st.includes("live") || st.includes("download")) {
         downloading += 1;
       }
     }
@@ -353,18 +357,34 @@ export function useTorrentWorkspace() {
       setTrackers([]);
       return;
     }
+    let cancelled = false;
     void torrentDetails(selectedRef)
-      .then(setDetail)
+      .then((v) => {
+        if (!cancelled) {
+          setDetail(v);
+        }
+      })
       .catch((e) => {
-        setDetail(null);
-        logErr("Load torrent details", e);
+        if (!cancelled) {
+          setDetail(null);
+          logErr("Load torrent details", e);
+        }
       });
     void torrentTrackers(selectedRef)
-      .then(setTrackers)
+      .then((v) => {
+        if (!cancelled) {
+          setTrackers(v);
+        }
+      })
       .catch((e) => {
-        setTrackers([]);
-        logErr("Load trackers", e);
+        if (!cancelled) {
+          setTrackers([]);
+          logErr("Load trackers", e);
+        }
       });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedRef, logErr]);
 
   // Live stats: poll while a torrent is selected (list payload is separate).
@@ -397,13 +417,17 @@ export function useTorrentWorkspace() {
   }, [selectedRef, logErr]);
 
   useEffect(() => {
-    if (!selectedRow) {
+    if (!selectedInfoHash) {
       setPerTorrentDownLimit("");
       setPerTorrentUpLimit("");
       return;
     }
-    void getTorrentBandwidthLimits(selectedRow.info_hash)
+    let cancelled = false;
+    void getTorrentBandwidthLimits(selectedInfoHash)
       .then((limits) => {
+        if (cancelled) {
+          return;
+        }
         setPerTorrentDownLimit(
           limits.downloadLimitBps != null
             ? String(limits.downloadLimitBps)
@@ -414,11 +438,17 @@ export function useTorrentWorkspace() {
         );
       })
       .catch((e) => {
+        if (cancelled) {
+          return;
+        }
         setPerTorrentDownLimit("");
         setPerTorrentUpLimit("");
         logErr("Load per-torrent limits", e);
       });
-  }, [selectedRow, logErr]);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedInfoHash, logErr]);
 
   useEffect(() => {
     if (tab !== "peers" || !selectedRef) {
@@ -453,23 +483,33 @@ export function useTorrentWorkspace() {
       setPieceDump(null);
       return;
     }
+    let cancelled = false;
     void torrentPieceDump(selectedRef)
-      .then(setPieceDump)
+      .then((v) => {
+        if (!cancelled) {
+          setPieceDump(v);
+        }
+      })
       .catch((e) => {
-        setPieceDump("(unavailable)");
-        logErr("Load piece bitmap", e);
+        if (!cancelled) {
+          setPieceDump("(unavailable)");
+          logErr("Load piece bitmap", e);
+        }
       });
+    return () => {
+      cancelled = true;
+    };
   }, [tab, selectedRef, logErr]);
 
   useEffect(() => {
-    if (!selectedRow) {
+    if (!selectedInfoHash) {
       setPerTorrentLabel("");
       setLabelColorHex("#60a5fa");
       return;
     }
-    setPerTorrentLabel(selectedRow.label ?? "");
-    setLabelColorHex(selectedRow.labelColor ?? "#60a5fa");
-  }, [selectedRow]);
+    setPerTorrentLabel(selectedLabel ?? "");
+    setLabelColorHex(selectedLabelColor ?? "#60a5fa");
+  }, [selectedInfoHash, selectedLabel, selectedLabelColor]);
 
   const batchRefs = useMemo(() => Array.from(selectedRefs), [selectedRefs]);
   const multiSelected = batchRefs.length > 1;
@@ -498,11 +538,14 @@ export function useTorrentWorkspace() {
       const next = new Set(selectedRefs);
       if (next.has(ref)) {
         next.delete(ref);
+        setSelectedRefs(next);
+        const remaining = next.values().next().value as string | undefined;
+        setSelectedRef(remaining ?? null);
       } else {
         next.add(ref);
+        setSelectedRefs(next);
+        setSelectedRef(ref);
       }
-      setSelectedRefs(next);
-      setSelectedRef(ref);
     } else {
       setSelectedRefs(new Set([ref]));
       setSelectedRef(ref);
@@ -594,13 +637,15 @@ export function useTorrentWorkspace() {
   const applyBatchLabel = async () => {
     const v = batchLabelDraft.trim();
     try {
+      let n = 0;
       for (const ref of batchRefs) {
-        const row = displayRows.find((r) => torrentRef(r) === ref);
+        const row = rows.find((r) => torrentRef(r) === ref);
         if (row) {
           await setTorrentLabel(row.info_hash, v.length ? v : null);
+          n += 1;
         }
       }
-      log(`Label set on ${batchRefs.length} torrent(s).`);
+      log(`Label set on ${n} torrent(s).`);
     } catch (e) {
       logErr("Batch set label", e);
     }
@@ -814,8 +859,22 @@ export function useTorrentWorkspace() {
     if (!settingsDraft) {
       return;
     }
+    const normalized: NexttorrentSettings = {
+      ...settingsDraft,
+      watchFolders: settingsDraft.watchFolders
+        .map((s) => s.trim())
+        .filter(Boolean),
+      rssFeeds: settingsDraft.rssFeeds.map((f) => ({
+        ...f,
+        categorySavePaths: Object.fromEntries(
+          Object.entries(f.categorySavePaths ?? {}).filter(
+            ([k, v]) => k.trim() && v.trim(),
+          ),
+        ),
+      })),
+    };
     const ok = await runLogged("Save settings", log, () =>
-      saveNexttorrentSettings(settingsDraft),
+      saveNexttorrentSettings(normalized),
     );
     if (ok === undefined) {
       return;
@@ -836,10 +895,11 @@ export function useTorrentWorkspace() {
 
   // OS file drag-and-drop (.torrent paths from Tauri webview).
   useEffect(() => {
+    let cancelled = false;
     let unlisten: (() => void) | undefined;
     void (async () => {
       try {
-        unlisten = await getCurrentWebview().onDragDropEvent((event) => {
+        const off = await getCurrentWebview().onDragDropEvent((event) => {
           const payload = event.payload;
           if (payload.type === "enter" || payload.type === "over") {
             setDragOver(true);
@@ -877,11 +937,17 @@ export function useTorrentWorkspace() {
             })();
           }
         });
+        if (cancelled) {
+          off();
+          return;
+        }
+        unlisten = off;
       } catch {
         /* webview drag-drop may be unavailable in pure browser e2e */
       }
     })();
     return () => {
+      cancelled = true;
       unlisten?.();
     };
   }, [log, logErr]);
@@ -925,8 +991,10 @@ export function useTorrentWorkspace() {
       }
       if (e.key === " ") {
         e.preventDefault();
-        const row = displayRows.find((r) => torrentRef(r) === selectedRef);
-        const paused = row?.stats?.state === "paused";
+        const row = rows.find((r) => torrentRef(r) === selectedRef);
+        const paused = String(row?.stats?.state ?? "")
+          .toLowerCase()
+          .includes("paused");
         void (paused ? torrentResume(selectedRef) : torrentPause(selectedRef))
           .then(() => log(paused ? "Resumed." : "Paused."))
           .catch((err) => logErr(paused ? "Resume" : "Pause", err));
@@ -944,12 +1012,12 @@ export function useTorrentWorkspace() {
     batchRefs,
     closeDetailPane,
     contextMenu,
-    displayRows,
     log,
     logErr,
     openAddTorrent,
     openSettings,
     removeTorrents,
+    rows,
     selectedRef,
     selectedRefs.size,
   ]);
@@ -992,8 +1060,9 @@ export function useTorrentWorkspace() {
 
   const pickOutputDirectory = async () => {
     const d = await open({ directory: true, multiple: false });
-    if (typeof d === "string") {
-      setAddOutputDir(d);
+    const path = normalizeDialogFilePath(d);
+    if (path) {
+      setAddOutputDir(path);
     }
   };
 

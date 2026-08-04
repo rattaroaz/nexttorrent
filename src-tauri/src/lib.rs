@@ -130,7 +130,7 @@ fn spawn_rss_loop(state: AppState) {
             if !auto {
                 continue;
             }
-            match crate::torrent_commands::rss_poll_feeds_impl(&bg).await {
+            match crate::torrent_commands::rss_poll_feeds_impl(&bg, true).await {
                 Ok(r) if r.magnets_added > 0 || !r.messages.is_empty() => {
                     tracing::info!(
                         magnets_added = r.magnets_added,
@@ -256,6 +256,8 @@ pub fn run() {
 
             let http_client = reqwest::Client::builder()
                 .use_rustls_tls()
+                .connect_timeout(Duration::from_secs(15))
+                .timeout(Duration::from_secs(60))
                 .build()
                 .map_err(|e| e.to_string())?;
 

@@ -412,6 +412,13 @@ pub fn save_nexttorrent_settings(
     state: State<'_, AppState>,
     settings: crate::settings::NexttorrentSettings,
 ) -> Result<(), String> {
+    if settings.listen_port_end <= settings.listen_port_start {
+        return Err(map_cmd_err(
+            &state,
+            "save_nexttorrent_settings",
+            "listen port end must be greater than start (range is half-open)".into(),
+        ));
+    }
     crate::settings::save_settings(&state.settings_path, &settings)
         .map_err(|err| map_cmd_err(&state, "save_nexttorrent_settings", err.to_string()))?;
     *state.settings.write() = settings.clone();
@@ -427,7 +434,7 @@ pub fn set_torrent_label(
     info_hash: String,
     label: Option<String>,
 ) -> Result<(), String> {
-    let mut s = state.settings.write();
+    let mut s = state.settings.read().clone();
     match label {
         Some(l) if !l.is_empty() => {
             s.labels_by_info_hash.insert(info_hash, l);
@@ -437,7 +444,9 @@ pub fn set_torrent_label(
         }
     }
     crate::settings::save_settings(&state.settings_path, &s)
-        .map_err(|err| map_cmd_err(&state, "set_torrent_label", err.to_string()))
+        .map_err(|err| map_cmd_err(&state, "set_torrent_label", err.to_string()))?;
+    *state.settings.write() = s;
+    Ok(())
 }
 
 #[tauri::command]
@@ -483,7 +492,7 @@ pub async fn set_torrent_bandwidth_limits(
     upload_limit_bps: Option<u32>,
 ) -> Result<bool, String> {
     {
-        let mut s = state.settings.write();
+        let mut s = state.settings.read().clone();
         if download_limit_bps.is_none() && upload_limit_bps.is_none() {
             s.per_torrent_limits_by_info_hash.remove(&info_hash);
         } else {
@@ -497,6 +506,7 @@ pub async fn set_torrent_bandwidth_limits(
         }
         crate::settings::save_settings(&state.settings_path, &s)
             .map_err(|err| map_cmd_err(&state, "set_torrent_bandwidth_limits", err.to_string()))?;
+        *state.settings.write() = s;
     }
 
     apply_bandwidth_limits_to_running(&state, &info_hash).await
@@ -537,6 +547,18 @@ async fn apply_bandwidth_limits_to_running(
     let output_folder = details.output_folder.clone();
     let old_ref = torrent_ref_from_details(details.id, info_hash);
 
+    let settings = state.settings.read().clone();
+    let opts = AddTorrentOptions {
+        paused: was_paused,
+        output_folder: Some(output_folder.clone()),
+        only_files: only_files.clone(),
+        overwrite: true,
+        ratelimits: settings.limits_config_for_info_hash(info_hash),
+        ..Default::default()
+    };
+
+    // Forget only after we have a full snapshot. If re-add fails, restore without
+    // the new limits so the torrent is not permanently dropped from the session.
     state
         .api
         .api_torrent_action_forget(idx)
@@ -544,20 +566,50 @@ async fn apply_bandwidth_limits_to_running(
         .map_err(|err| map_cmd_err(state, "set_torrent_bandwidth_limits", err.to_string()))?;
     state.sequential_streams.remove(&old_ref);
 
-    let settings = state.settings.read().clone();
-    let opts = AddTorrentOptions {
-        paused: was_paused,
-        output_folder: Some(output_folder),
-        only_files,
-        overwrite: true,
-        ratelimits: settings.limits_config_for_info_hash(info_hash),
-        ..Default::default()
-    };
-    let resp = state
+    let resp = match state
         .api
-        .api_add_torrent(AddTorrent::TorrentFileBytes(torrent_bytes), Some(opts))
+        .api_add_torrent(
+            AddTorrent::TorrentFileBytes(torrent_bytes.clone()),
+            Some(opts),
+        )
         .await
-        .map_err(|err| map_cmd_err(state, "set_torrent_bandwidth_limits", err.to_string()))?;
+    {
+        Ok(resp) => resp,
+        Err(err) => {
+            let restore = AddTorrentOptions {
+                paused: was_paused,
+                output_folder: Some(output_folder),
+                only_files,
+                overwrite: true,
+                ..Default::default()
+            };
+            match state
+                .api
+                .api_add_torrent(AddTorrent::TorrentFileBytes(torrent_bytes), Some(restore))
+                .await
+            {
+                Ok(resp) => {
+                    attach_sequential_if_enabled(state, &torrent_ref_from_add_response(&resp));
+                    return Err(map_cmd_err(
+                        state,
+                        "set_torrent_bandwidth_limits",
+                        format!(
+                            "failed to apply bandwidth limits; torrent restored without new limits: {err}"
+                        ),
+                    ));
+                }
+                Err(restore_err) => {
+                    return Err(map_cmd_err(
+                        state,
+                        "set_torrent_bandwidth_limits",
+                        format!(
+                            "failed to apply bandwidth limits ({err}); restore also failed: {restore_err}"
+                        ),
+                    ));
+                }
+            }
+        }
+    };
     attach_sequential_if_enabled(state, &torrent_ref_from_add_response(&resp));
     tracing::info!(info_hash, "re-applied per-torrent bandwidth limits");
     Ok(true)
@@ -768,8 +820,11 @@ pub async fn resume_all_impl(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-#[tracing::instrument(skip_all)]
-pub(crate) async fn rss_poll_feeds_impl(state: &AppState) -> Result<RssPollResult, String> {
+#[tracing::instrument(skip_all, fields(auto_add_only))]
+pub(crate) async fn rss_poll_feeds_impl(
+    state: &AppState,
+    auto_add_only: bool,
+) -> Result<RssPollResult, String> {
     let feeds: Vec<crate::settings::RssFeedEntry> = state.settings.read().rss_feeds.clone();
     let client = state.http_client.clone();
     let mut magnets_added = 0usize;
@@ -780,15 +835,21 @@ pub(crate) async fn rss_poll_feeds_impl(state: &AppState) -> Result<RssPollResul
         if !feed.enabled {
             continue;
         }
+        if auto_add_only && !feed.auto_add {
+            continue;
+        }
         let label = feed.name.as_deref().unwrap_or(&feed.url);
         match crate::rss::fetch_new_matches(&client, &feed).await {
-            Ok((matches, ids)) => {
+            Ok((matches, _ids)) => {
                 if matches.is_empty() {
                     continue;
                 }
-                pending_ids.push((feed.id.clone(), ids));
+                let mut seen_ok: Vec<String> = Vec::new();
                 for m in matches {
+                    let mut item_ok = false;
+                    let mut item_attempted = false;
                     for magnet in m.magnets {
+                        item_attempted = true;
                         if let Err(e) = validate_magnet_uri(&magnet) {
                             messages.push(e);
                             continue;
@@ -816,6 +877,7 @@ pub(crate) async fn rss_poll_feeds_impl(state: &AppState) -> Result<RssPollResul
                         {
                             Ok(resp) => {
                                 magnets_added += 1;
+                                item_ok = true;
                                 attach_sequential_if_enabled(
                                     state,
                                     &torrent_ref_from_add_response(&resp),
@@ -824,6 +886,13 @@ pub(crate) async fn rss_poll_feeds_impl(state: &AppState) -> Result<RssPollResul
                             Err(e) => messages.push(format!("{label}: {e}")),
                         }
                     }
+                    // Only suppress retries after a successful add (or no valid magnets).
+                    if item_ok || !item_attempted {
+                        seen_ok.push(m.id);
+                    }
+                }
+                if !seen_ok.is_empty() {
+                    pending_ids.push((feed.id.clone(), seen_ok));
                 }
             }
             Err(e) => messages.push(format!("{label}: {e}")),
@@ -856,7 +925,8 @@ pub(crate) async fn rss_poll_feeds_impl(state: &AppState) -> Result<RssPollResul
 
 #[tauri::command]
 pub async fn rss_poll_feeds(state: State<'_, AppState>) -> Result<RssPollResult, String> {
-    rss_poll_feeds_impl(&state).await
+    // Manual poll: all enabled feeds. Background loop passes auto_add_only=true.
+    rss_poll_feeds_impl(&state, false).await
 }
 
 #[tauri::command]
@@ -900,8 +970,16 @@ pub(crate) async fn watch_poll_impl(state: &AppState) -> Result<usize, String> {
             }
             Err(e) => tracing::warn!(path=?p, err=%e, "watch folder: disk check skipped"),
         }
+        let info_hash = match crate::validation::info_hash_hex_from_torrent_bytes(&bytes) {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::warn!(path=?p, error=%e, "watch folder: invalid torrent");
+                continue;
+            }
+        };
         let opts = AddTorrentOptions {
             overwrite: true,
+            ratelimits: settings.limits_config_for_info_hash(&info_hash),
             ..Default::default()
         };
         match state
@@ -909,7 +987,8 @@ pub(crate) async fn watch_poll_impl(state: &AppState) -> Result<usize, String> {
             .api_add_torrent(AddTorrent::TorrentFileBytes(Bytes::from(bytes)), Some(opts))
             .await
         {
-            Ok(_) => {
+            Ok(resp) => {
+                attach_sequential_if_enabled(state, &torrent_ref_from_add_response(&resp));
                 state.watch_processed.write().insert(key);
                 persist_watch_processed(state)?;
                 added += 1;

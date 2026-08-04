@@ -105,7 +105,7 @@ describe("ipc invoke payloads (camelCase for Tauri 2)", () => {
   it("updaterCheckFeed invokes without payload", async () => {
     vi.mocked(core.invoke).mockResolvedValue({
       status: "up_to_date",
-      installedVersion: "1.1.1",
+      installedVersion: "1.2.0",
     });
     await updaterCheckFeed();
     expect(core.invoke).toHaveBeenCalledWith(IPC_COMMANDS.updaterCheckFeed);

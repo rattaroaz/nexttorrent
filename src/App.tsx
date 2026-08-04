@@ -2,7 +2,6 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { getCurrent as getDeepLinkUrls } from "@tauri-apps/plugin-deep-link";
 import { useEffect, useRef, useState } from "react";
 
 import { DebugOverlay } from "./components/DebugOverlay";
@@ -55,18 +54,9 @@ function App() {
     }
     clipboardChecked.current = true;
 
+    // Deep-link / CLI magnets are handled in Rust (magnet_handler). Only prompt
+    // for clipboard magnets here to avoid double-adding launch URLs.
     void (async () => {
-      try {
-        const urls = (await getDeepLinkUrls()) ?? [];
-        for (const url of urls) {
-          if (url.startsWith("magnet:")) {
-            await torrentAddMagnet(url, null, null, false);
-          }
-        }
-      } catch {
-        /* deep-link plugin may be unavailable in dev */
-      }
-
       try {
         const text = (await readText())?.trim() ?? "";
         if (!text.startsWith("magnet:?")) {
@@ -88,9 +78,10 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     let unlistenClose: (() => void) | undefined;
     void (async () => {
-      unlistenClose = await getCurrentWindow().onCloseRequested(
+      const unlisten = await getCurrentWindow().onCloseRequested(
         async (event) => {
           const s = await getNexttorrentSettings();
           if (s.minimizeToTray) {
@@ -99,8 +90,14 @@ function App() {
           }
         },
       );
+      if (cancelled) {
+        unlisten();
+        return;
+      }
+      unlistenClose = unlisten;
     })();
     return () => {
+      cancelled = true;
       unlistenClose?.();
     };
   }, []);

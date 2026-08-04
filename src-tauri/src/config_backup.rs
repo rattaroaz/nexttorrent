@@ -2,7 +2,7 @@
 
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use walkdir::WalkDir;
 use zip::read::ZipArchive;
@@ -71,6 +71,25 @@ pub fn export_configuration_bundle(state: &AppState, dest_zip: &Path) -> Result<
     Ok(())
 }
 
+/// Join zip-relative path segments under `root`, rejecting `..`, absolute, and prefix components.
+fn safe_extract_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let relative = relative.replace('\\', "/");
+    if relative.is_empty() || relative.starts_with('/') {
+        return Err(format!("unsafe zip entry path: {relative}"));
+    }
+    let mut out = root.to_path_buf();
+    for component in Path::new(&relative).components() {
+        match component {
+            Component::Normal(part) => out.push(part),
+            Component::CurDir => {}
+            Component::ParentDir | Component::Prefix(_) | Component::RootDir => {
+                return Err(format!("unsafe zip entry path: {relative}"));
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn extract_zip_entry(
     archive: &mut ZipArchive<File>,
     i: usize,
@@ -85,9 +104,14 @@ fn extract_zip_entry(
     let out: PathBuf =
         if name == SETTINGS_ENTRY || name == WATCH_PROCESSED_ENTRY || name == SEEDING_STARTED_ENTRY
         {
+            // Flat config entries only — reject any path separators / traversal.
+            if name.contains('/') || name.contains('\\') || name.contains("..") {
+                return Err(format!("unsafe zip entry name: {name}"));
+            }
             config_dir.join(name)
         } else if let Some(rel) = name.strip_prefix(RQBIT_DIR_PREFIX) {
-            cache_dir.join("rqbit-session").join(rel)
+            let session_root = cache_dir.join("rqbit-session");
+            safe_extract_path(&session_root, rel)?
         } else {
             return Ok(());
         };
@@ -111,10 +135,16 @@ pub fn import_configuration_bundle(
     for i in 0..archive.len() {
         extract_zip_entry(&mut archive, i, config_dir, cache_dir)?;
     }
-    // Reload in-memory settings for immediate UI consistency (session still needs restart).
+    // Reload in-memory maps for immediate UI consistency (session DB still needs restart).
     let loaded = crate::settings::load_settings(&state.settings_path)
         .unwrap_or_else(|_| crate::settings::NexttorrentSettings::default());
     *state.settings.write() = loaded;
+    *state.watch_processed.write() = std::fs::read_to_string(&state.watch_processed_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    *state.seeding_started.write() =
+        crate::seeding_rules::load_seeding_started(&state.seeding_started_path);
     Ok(())
 }
 
@@ -169,6 +199,14 @@ mod tests {
             seeding_started_path: config_dir.join("seeding_started.json"),
             seeding_started: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    #[test]
+    fn safe_extract_path_rejects_traversal() {
+        let root = PathBuf::from("C:/safe/root");
+        assert!(safe_extract_path(&root, "../outside").is_err());
+        assert!(safe_extract_path(&root, "/abs").is_err());
+        assert!(safe_extract_path(&root, "ok/nested").is_ok());
     }
 
     #[test]

@@ -40,10 +40,10 @@ pub fn save_seeding_started(path: &Path, map: &HashMap<String, u64>) -> std::io:
 pub async fn apply_seeding_rules(state: &AppState, seeding_started: &mut HashMap<String, u64>) {
     let settings: NexttorrentSettings = state.settings.read().clone();
     let ratio_limit = settings.seed_ratio_limit;
-    let time_limit_secs = settings
-        .seed_time_limit_hours
-        .filter(|h| *h > 0.0)
-        .map(|h| (h * 3600.0) as u64);
+    let time_limit_secs = settings.seed_time_limit_hours.filter(|h| *h > 0.0).map(|h| {
+        // Truncating sub-second values to 0 would pause immediately; require at least 1s.
+        (h * 3600.0).ceil().max(1.0) as u64
+    });
 
     if ratio_limit.is_none() && time_limit_secs.is_none() {
         return;

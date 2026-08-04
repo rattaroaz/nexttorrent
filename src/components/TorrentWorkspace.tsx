@@ -29,7 +29,7 @@ export function TorrentWorkspace() {
     onFilterQueryChange: ws.setFilterQuery,
     sortBy: ws.sortBy,
     sortDir: ws.sortDir,
-    onSortByChange: ws.setSortBy,
+    onSortByChange: ws.handleSortHeaderClick,
     onSortHeaderClick: ws.handleSortHeaderClick,
     labelFilter: ws.labelFilter,
     onLabelFilterChange: ws.setLabelFilter,

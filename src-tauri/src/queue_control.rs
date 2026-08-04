@@ -112,6 +112,31 @@ pub async fn apply_queue_rules(
                 }
                 tracing::info!(torrent = %key, "paused due to max_active_downloads");
             }
+        } else if d.len() < max as usize {
+            // Resume oldest paused incomplete torrents until the slot cap is filled.
+            let need = max as usize - d.len();
+            let mut paused_incomplete: Vec<(String, i64)> = Vec::new();
+            for t in &list.torrents {
+                let Some(stats) = &t.stats else {
+                    continue;
+                };
+                if !matches!(stats.state, TorrentStatsState::Paused) || stats.finished {
+                    continue;
+                }
+                if stats.total_bytes > 0 && stats.progress_bytes >= stats.total_bytes {
+                    continue;
+                }
+                let key = torrent_ref_string(t.id, &t.info_hash);
+                let id_ord = t.id.map(|i| i as i64).unwrap_or(-1);
+                paused_incomplete.push((key, id_ord));
+            }
+            paused_incomplete.sort_by_key(|b| b.1);
+            for (key, _) in paused_incomplete.into_iter().take(need) {
+                if let Ok(idx) = TorrentIdOrHash::parse(&key) {
+                    let _ = state.api.api_torrent_action_start(idx).await;
+                }
+                tracing::info!(torrent = %key, "resumed due to free download queue slot");
+            }
         }
     }
 
@@ -138,6 +163,8 @@ pub async fn apply_queue_rules(
                 tracing::info!(torrent = %key, "paused due to max_active_uploads");
             }
         }
+        // Do not auto-resume paused seeds here: seeding ratio/time rules also pause
+        // finished torrents, and blindly restarting them would fight those limits.
     }
 
     seeding_rules::apply_seeding_rules(state, seeding_started).await;
