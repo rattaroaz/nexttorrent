@@ -18,3 +18,17 @@ export function formatInvokeError(e: unknown): string {
     return String(e);
   }
 }
+
+/** Missing, initializing, or not-live torrent — expected while polling, not a failure. */
+export function isTorrentUnavailableError(e: unknown): boolean {
+  const m = formatInvokeError(e).toLowerCase();
+  return (
+    (m.includes("torrent") && m.includes("not found")) ||
+    m.includes("torrent not live") ||
+    m.includes("not live") ||
+    m.includes("no chunk tracker") ||
+    m.includes("neither paused nor live") ||
+    m.includes("metadata is available") ||
+    m.includes("metadata not ready")
+  );
+}

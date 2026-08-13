@@ -31,8 +31,24 @@ fn is_idempotent_torrent_action_err(msg: &str) -> bool {
         || m.contains("pausing already paused torrent")
 }
 
+/// Torrent is gone, still fetching metadata, or not live yet — expected during polling.
+fn is_torrent_unavailable_err(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    (m.contains("torrent") && m.contains("not found"))
+        || m.contains("torrent not live")
+        || m.contains("not live")
+        || m.contains("no chunk tracker")
+        || m.contains("neither paused nor live")
+        || m.contains("metadata is available")
+        || m.contains("metadata not ready")
+}
+
+fn is_benign_torrent_err(msg: &str) -> bool {
+    is_idempotent_torrent_action_err(msg) || is_torrent_unavailable_err(msg)
+}
+
 fn map_cmd_err(state: &AppState, command: &'static str, msg: String) -> String {
-    if is_idempotent_torrent_action_err(&msg) {
+    if is_benign_torrent_err(&msg) {
         tracing::debug!(command = command, detail = %msg, "benign torrent state");
         return msg;
     }
@@ -64,8 +80,8 @@ async fn pause_torrent_action(
         Ok(_) => Ok(()),
         Err(err) => {
             let msg = err.to_string();
-            if is_idempotent_torrent_action_err(&msg) {
-                tracing::debug!(command = command, detail = %msg, "torrent already paused");
+            if is_benign_torrent_err(&msg) {
+                tracing::debug!(command = command, detail = %msg, "pause skipped");
                 Ok(())
             } else {
                 Err(map_cmd_err(state, command, msg))
@@ -83,8 +99,8 @@ async fn start_torrent_action(
         Ok(_) => Ok(()),
         Err(err) => {
             let msg = err.to_string();
-            if is_idempotent_torrent_action_err(&msg) {
-                tracing::debug!(command = command, detail = %msg, "torrent already active");
+            if is_benign_torrent_err(&msg) {
+                tracing::debug!(command = command, detail = %msg, "resume skipped");
                 Ok(())
             } else {
                 Err(map_cmd_err(state, command, msg))
@@ -328,10 +344,17 @@ pub async fn torrent_force_recheck(
     torrent_ref: String,
 ) -> Result<(), String> {
     let idx = parse_torrent_ref_cmd(&state, "torrent_force_recheck", &torrent_ref)?;
-    let details = state
-        .api
-        .api_torrent_details(idx)
-        .map_err(|err| map_cmd_err(&state, "torrent_force_recheck", err.to_string()))?;
+    let details = match state.api.api_torrent_details(idx) {
+        Ok(d) => d,
+        Err(err) => {
+            let msg = err.to_string();
+            if is_torrent_unavailable_err(&msg) {
+                tracing::debug!(detail = %msg, "force recheck skipped; torrent not available");
+                return Ok(());
+            }
+            return Err(map_cmd_err(&state, "torrent_force_recheck", msg));
+        }
+    };
     let limits = state
         .settings
         .read()
@@ -339,11 +362,8 @@ pub async fn torrent_force_recheck(
     let readded =
         forget_and_readd_preserving_files(&state, "torrent_force_recheck", idx, limits).await?;
     if !readded {
-        return Err(map_cmd_err(
-            &state,
-            "torrent_force_recheck",
-            "cannot recheck until torrent metadata is available".into(),
-        ));
+        tracing::info!("force recheck skipped; torrent metadata not available");
+        return Ok(());
     }
     Ok(())
 }
@@ -366,10 +386,17 @@ pub fn torrent_peer_stats(
     torrent_ref: String,
 ) -> Result<serde_json::Value, String> {
     let idx = parse_torrent_ref_cmd(&state, "torrent_peer_stats", &torrent_ref)?;
-    let snap = state
-        .api
-        .api_peer_stats(idx, Default::default())
-        .map_err(|err| map_cmd_err(&state, "torrent_peer_stats", err.to_string()))?;
+    let snap = match state.api.api_peer_stats(idx, Default::default()) {
+        Ok(s) => s,
+        Err(err) => {
+            let msg = err.to_string();
+            if is_torrent_unavailable_err(&msg) {
+                tracing::debug!(detail = %msg, "peer stats unavailable");
+                return Ok(serde_json::json!({}));
+            }
+            return Err(map_cmd_err(&state, "torrent_peer_stats", msg));
+        }
+    };
     serde_json::to_value(snap)
         .map_err(|err| map_cmd_err(&state, "torrent_peer_stats", err.to_string()))
 }
@@ -380,10 +407,18 @@ pub fn torrent_live_stats(
     torrent_ref: String,
 ) -> Result<LiveStats, String> {
     let idx = parse_torrent_ref_cmd(&state, "torrent_live_stats", &torrent_ref)?;
-    state
-        .api
-        .api_stats_v0(idx)
-        .map_err(|err| map_cmd_err(&state, "torrent_live_stats", err.to_string()))
+    match state.api.api_stats_v0(idx) {
+        Ok(stats) => Ok(stats),
+        Err(err) => {
+            let msg = err.to_string();
+            if is_torrent_unavailable_err(&msg) {
+                tracing::debug!(detail = %msg, "live stats unavailable");
+                Ok(LiveStats::default())
+            } else {
+                Err(map_cmd_err(&state, "torrent_live_stats", msg))
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -392,10 +427,18 @@ pub fn torrent_piece_bitmap_dump(
     torrent_ref: String,
 ) -> Result<String, String> {
     let idx = parse_torrent_ref_cmd(&state, "torrent_piece_bitmap_dump", &torrent_ref)?;
-    state
-        .api
-        .api_dump_haves(idx)
-        .map_err(|err| map_cmd_err(&state, "torrent_piece_bitmap_dump", err.to_string()))
+    match state.api.api_dump_haves(idx) {
+        Ok(dump) => Ok(dump),
+        Err(err) => {
+            let msg = err.to_string();
+            if is_torrent_unavailable_err(&msg) {
+                tracing::debug!(detail = %msg, "piece bitmap unavailable");
+                Ok("(unavailable)".into())
+            } else {
+                Err(map_cmd_err(&state, "torrent_piece_bitmap_dump", msg))
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -477,10 +520,17 @@ pub fn torrent_trackers(
     torrent_ref: String,
 ) -> Result<Vec<String>, String> {
     let idx = parse_torrent_ref_cmd(&state, "torrent_trackers", &torrent_ref)?;
-    let mgr = state
-        .api
-        .mgr_handle(idx)
-        .map_err(|err| map_cmd_err(&state, "torrent_trackers", err.to_string()))?;
+    let mgr = match state.api.mgr_handle(idx) {
+        Ok(m) => m,
+        Err(err) => {
+            let msg = err.to_string();
+            if is_torrent_unavailable_err(&msg) {
+                tracing::debug!(detail = %msg, "trackers unavailable");
+                return Ok(Vec::new());
+            }
+            return Err(map_cmd_err(&state, "torrent_trackers", msg));
+        }
+    };
     Ok(mgr
         .shared()
         .trackers
@@ -1114,6 +1164,20 @@ mod tests {
     #[test]
     fn real_pause_errors_are_not_idempotent() {
         assert!(!is_idempotent_torrent_action_err(
+            "error pausing torrent\n\nCaused by:\n    can't pause torrent in error state"
+        ));
+    }
+
+    #[test]
+    fn missing_or_initializing_torrent_is_unavailable() {
+        use super::is_torrent_unavailable_err;
+        assert!(is_torrent_unavailable_err("torrent 3 not found"));
+        assert!(is_torrent_unavailable_err("torrent not live"));
+        assert!(is_torrent_unavailable_err("not live"));
+        assert!(is_torrent_unavailable_err(
+            "no chunk tracker, torrent neither paused nor live"
+        ));
+        assert!(!is_torrent_unavailable_err(
             "error pausing torrent\n\nCaused by:\n    can't pause torrent in error state"
         ));
     }

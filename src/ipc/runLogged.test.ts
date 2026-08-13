@@ -46,4 +46,19 @@ describe("runLogged", () => {
       /^pause failed: nope corr=[0-9a-f]{8}$/,
     );
   });
+
+  it("does not log when the torrent is not available", async () => {
+    const log = vi.fn();
+    const out = await runLogged("Load live stats", log, async () => {
+      throw new Error("torrent 3 not found");
+    });
+    expect(out).toEqual({ ok: false });
+    expect(log).not.toHaveBeenCalled();
+
+    runLoggedVoid("Pause torrent", log, async () => {
+      throw "no chunk tracker, torrent neither paused nor live";
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(log).not.toHaveBeenCalled();
+  });
 });

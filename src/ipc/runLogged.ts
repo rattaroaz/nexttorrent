@@ -1,4 +1,4 @@
-import { formatInvokeError } from "./invokeError";
+import { formatInvokeError, isTorrentUnavailableError } from "./invokeError";
 import { logFrontendEvent } from "./client";
 
 function newCorr(): string {
@@ -18,6 +18,9 @@ export async function runLogged<T>(
   try {
     return { ok: true, value: await fn() };
   } catch (e) {
+    if (isTorrentUnavailableError(e)) {
+      return { ok: false };
+    }
     const raw = formatInvokeError(e);
     const msg = `${action} failed: ${raw} corr=${corr}`;
     log(msg);
@@ -36,6 +39,9 @@ export function runLoggedVoid(
 ): void {
   const corr = newCorr();
   void fn().catch((e) => {
+    if (isTorrentUnavailableError(e)) {
+      return;
+    }
     const raw = formatInvokeError(e);
     const msg = `${action} failed: ${raw} corr=${corr}`;
     log(msg);

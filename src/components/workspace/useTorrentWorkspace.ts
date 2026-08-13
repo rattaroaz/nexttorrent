@@ -15,7 +15,10 @@ import {
   type TorrentsUpdatePayload,
 } from "../../ipc/contracts";
 import { normalizeDialogFilePath } from "../../ipc/dialogPaths";
-import { formatInvokeError } from "../../ipc/invokeError";
+import {
+  formatInvokeError,
+  isTorrentUnavailableError,
+} from "../../ipc/invokeError";
 import { runLogged } from "../../ipc/runLogged";
 import { checkForUpdatesAndApply } from "../../services/updateService";
 import {
@@ -132,6 +135,9 @@ export function useTorrentWorkspace() {
 
   const logErr = useCallback(
     (action: string, e: unknown) => {
+      if (isTorrentUnavailableError(e)) {
+        return;
+      }
       log(`${action} failed: ${formatInvokeError(e)}`);
     },
     [log],
