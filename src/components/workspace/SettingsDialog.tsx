@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import type {
   NexttorrentSettings,
   NetworkInterfaceInfo,
@@ -49,6 +51,21 @@ export function SettingsDialog({
   onOpenLogsFolder,
 }: Props) {
   const setSettingsDraft = onSettingsDraftChange;
+  // Raw text drafts so Enter / partial lines are not wiped while typing.
+  // Dialog remounts when opened, so initial state is enough.
+  const [watchFoldersText, setWatchFoldersText] = useState(() =>
+    settingsDraft.watchFolders.join("\n"),
+  );
+  const [categoryPathsText, setCategoryPathsText] = useState<
+    Record<string, string>
+  >(() =>
+    Object.fromEntries(
+      settingsDraft.rssFeeds.map((f) => [
+        f.id,
+        categoryPathsToText(f.categorySavePaths),
+      ]),
+    ),
+  );
 
   return (
     <dialog open className="modal wide">
@@ -618,12 +635,14 @@ export function SettingsDialog({
           />
           <textarea
             rows={2}
-            value={categoryPathsToText(feed.categorySavePaths)}
+            value={categoryPathsText[feed.id] ?? ""}
             onChange={(e) => {
+              const text = e.target.value;
+              setCategoryPathsText((prev) => ({ ...prev, [feed.id]: text }));
               const rssFeeds = [...settingsDraft.rssFeeds];
               rssFeeds[idx] = {
                 ...feed,
-                categorySavePaths: textToCategoryPaths(e.target.value),
+                categorySavePaths: textToCategoryPaths(text),
               };
               setSettingsDraft({ ...settingsDraft, rssFeeds });
             }}
@@ -638,6 +657,7 @@ export function SettingsDialog({
             typeof crypto !== "undefined" && crypto.randomUUID
               ? crypto.randomUUID()
               : `feed-${Date.now()}`;
+          setCategoryPathsText((prev) => ({ ...prev, [id]: "" }));
           setSettingsDraft({
             ...settingsDraft,
             rssFeeds: [...settingsDraft.rssFeeds, defaultRssFeed(id)],
@@ -655,16 +675,15 @@ export function SettingsDialog({
       </p>
       <textarea
         rows={4}
-        value={settingsDraft.watchFolders.join("\n")}
-        onChange={(e) =>
+        value={watchFoldersText}
+        onChange={(e) => {
+          const text = e.target.value;
+          setWatchFoldersText(text);
           setSettingsDraft({
             ...settingsDraft,
-            watchFolders: e.target.value
-              .split("\n")
-              .map((s) => s.trim())
-              .filter(Boolean),
-          })
-        }
+            watchFolders: text.split("\n"),
+          });
+        }}
       />
 
       <p className="hint">

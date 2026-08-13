@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::ipc::SessionSnapshot;
 use crate::paths::{self, PathError};
 use crate::settings::NexttorrentSettings;
+use crate::state::AppState;
 
 fn path_buf_to_string(path: PathBuf) -> Result<String, PathError> {
     path.into_os_string()
@@ -33,13 +34,11 @@ pub fn build_session_snapshot<R: tauri::Runtime>(
 }
 
 #[tauri::command]
-pub fn get_session_snapshot(app: AppHandle) -> Result<SessionSnapshot, String> {
-    let settings_path = paths::app_paths(&app)
-        .map_err(|err| err.to_string())?
-        .config_dir
-        .join("settings.json");
-    let settings = crate::settings::load_settings(&settings_path)
-        .unwrap_or_else(|_| NexttorrentSettings::default());
+pub fn get_session_snapshot(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<SessionSnapshot, String> {
+    let settings = state.settings.read().clone();
     build_session_snapshot(&app, &settings).map_err(|err| err.to_string())
 }
 
@@ -75,9 +74,11 @@ pub fn open_logs_folder(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn resolve_download_path(app: AppHandle, relative_path: String) -> Result<String, String> {
-    let paths = paths::app_paths(&app).map_err(|err| err.to_string())?;
-    let resolved = paths::safe_join_under(&paths.download_dir, &relative_path)
-        .map_err(|err| err.to_string())?;
+pub fn resolve_download_path(
+    state: State<'_, AppState>,
+    relative_path: String,
+) -> Result<String, String> {
+    let root = state.live_download_root();
+    let resolved = paths::safe_join_under(&root, &relative_path).map_err(|err| err.to_string())?;
     Ok(resolved.to_string_lossy().into_owned())
 }

@@ -317,8 +317,10 @@ mod tests {
 
     #[test]
     fn settings_safe_strips_api_keys() {
-        let mut s = NexttorrentSettings::default();
-        s.socks_proxy = Some("socks5://u:p@host:1".into());
+        let mut s = NexttorrentSettings {
+            socks_proxy: Some("socks5://u:p@host:1".into()),
+            ..Default::default()
+        };
         s.rss_feeds.push(RssFeedEntry {
             id: "1".into(),
             url: "https://example.com/rss".into(),

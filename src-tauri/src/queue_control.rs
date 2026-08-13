@@ -219,6 +219,8 @@ pub async fn apply_queue_rules(
             resume_queue_paused(state, queue_paused_uploads, resume_up, true).await;
         }
     } else {
+        // Only resume torrents this loop paused for the slot cap — not seeds
+        // paused by ratio/time rules.
         resume_queue_paused(state, queue_paused_uploads, resume_up, true).await;
     }
 

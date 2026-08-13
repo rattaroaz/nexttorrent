@@ -331,12 +331,18 @@ export function TorrentDetailPane({
               </ul>
             )}
             {tab === "peers" && <TorrentPeersPanel peerDump={peerMap} />}
-            {tab === "trackers" && (
-              <p className="muted">
-                Tracker announces and scrape schedules are handled internally by
-                librqbit (HTTP(S)/UDP). Use session DHT view in logs if needed.
-              </p>
-            )}
+            {tab === "trackers" &&
+              (trackers.length === 0 ? (
+                <p className="muted">No trackers listed for this torrent.</p>
+              ) : (
+                <ul className="tracker-list">
+                  {trackers.map((t) => (
+                    <li key={t}>
+                      <code>{t}</code>
+                    </li>
+                  ))}
+                </ul>
+              ))}
             {tab === "pieces" && (
               <pre className="piece-dump">{pieceDump ?? "…"}</pre>
             )}

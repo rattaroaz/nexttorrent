@@ -40,24 +40,7 @@ pub(crate) fn zip_output_path(
             return Ok(None);
         }
         let session_root = cache_dir.join("rqbit-session");
-        let relative = Path::new(rel);
-        if relative.is_absolute() {
-            return Err(format!("refusing absolute zip path {name}"));
-        }
-        let mut out = session_root;
-        for component in relative.components() {
-            match component {
-                Component::Normal(part) => out.push(part),
-                Component::CurDir => {}
-                Component::ParentDir => {
-                    return Err(format!("refusing zip path traversal in {name}"));
-                }
-                Component::Prefix(_) | Component::RootDir => {
-                    return Err(format!("refusing absolute zip path {name}"));
-                }
-            }
-        }
-        return Ok(Some(out));
+        return Ok(Some(safe_extract_path(&session_root, rel)?));
     }
     Ok(None)
 }
@@ -117,6 +100,25 @@ pub fn export_configuration_bundle(state: &AppState, dest_zip: &Path) -> Result<
     Ok(())
 }
 
+/// Join zip-relative path segments under `root`, rejecting `..`, absolute, and prefix components.
+fn safe_extract_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let relative = relative.replace('\\', "/");
+    if relative.is_empty() || relative.starts_with('/') {
+        return Err(format!("unsafe zip entry path: {relative}"));
+    }
+    let mut out = root.to_path_buf();
+    for component in Path::new(&relative).components() {
+        match component {
+            Component::Normal(part) => out.push(part),
+            Component::CurDir => {}
+            Component::ParentDir | Component::Prefix(_) | Component::RootDir => {
+                return Err(format!("unsafe zip entry path: {relative}"));
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn extract_zip_entry(
     archive: &mut ZipArchive<File>,
     i: usize,
@@ -148,6 +150,7 @@ pub fn import_configuration_bundle(
     for i in 0..archive.len() {
         extract_zip_entry(&mut archive, i, config_dir, cache_dir)?;
     }
+    // Reload in-memory maps for immediate UI consistency (session DB still needs restart).
     let loaded = crate::settings::load_settings(&state.settings_path).map_err(|e| {
         format!("imported settings.json could not be parsed (file was written): {e}")
     })?;
@@ -217,6 +220,14 @@ mod tests {
     }
 
     #[test]
+    fn safe_extract_path_rejects_traversal() {
+        let root = PathBuf::from("C:/safe/root");
+        assert!(safe_extract_path(&root, "../outside").is_err());
+        assert!(safe_extract_path(&root, "/abs").is_err());
+        assert!(safe_extract_path(&root, "ok/nested").is_ok());
+    }
+
+    #[test]
     fn export_import_roundtrip_restores_settings() {
         let tmp =
             std::env::temp_dir().join(format!("nexttorrent-backup-test-{}", std::process::id()));
@@ -255,10 +266,10 @@ mod tests {
         std::fs::create_dir_all(&cache).unwrap();
 
         let err = zip_output_path("rqbit-session/../evil.txt", &config, &cache).unwrap_err();
-        assert!(err.contains("traversal"), "{err}");
+        assert!(err.contains("unsafe zip entry path"), "{err}");
         let err =
             zip_output_path("rqbit-session/foo/../../../outside", &config, &cache).unwrap_err();
-        assert!(err.contains("traversal"), "{err}");
+        assert!(err.contains("unsafe zip entry path"), "{err}");
 
         let ok = zip_output_path("rqbit-session/session.json", &config, &cache)
             .unwrap()
