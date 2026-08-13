@@ -210,22 +210,57 @@ pub async fn updater_check_feed(state: State<'_, AppState>) -> Result<UpdaterChe
     })
 }
 
+fn install_target_from_feed(
+    release: &RemoteRelease,
+    installed: &str,
+) -> Result<(String, PlatformArtifact), String> {
+    if !is_version_newer(&release.version, installed) {
+        return Err(fail_updater(
+            "download_failed",
+            format!(
+                "refusing to install {} — not newer than installed {installed}",
+                release.version
+            ),
+            vec![
+                ("remoteVersion".into(), release.version.clone()),
+                ("installedVersion".into(), installed.to_string()),
+            ],
+        ));
+    }
+    let artifact = pick_windows_artifact(&release.platforms).ok_or_else(|| {
+        fail_updater(
+            "feed_fetch_failed",
+            "update feed has no Windows installer artifact (windows-x86_64-nsis / msi)".to_string(),
+            vec![("remoteVersion".into(), release.version.clone())],
+        )
+    })?;
+    Ok((release.version.clone(), artifact))
+}
+
 #[tauri::command]
-#[tracing::instrument(skip(state, signature))]
+#[tracing::instrument(skip(state, download_url, signature))]
 pub async fn updater_download_and_install(
     state: State<'_, AppState>,
     download_url: String,
     signature: String,
     version: String,
 ) -> Result<(), String> {
-    if download_url.is_empty() || signature.is_empty() {
-        return Err("missing download URL or signature".into());
+    let installed = installed_version();
+    let release = fetch_release(&state.http_client).await?;
+    let (feed_version, artifact) = install_target_from_feed(&release, &installed)?;
+    if !version.is_empty() && version != feed_version {
+        tracing::warn!(
+            client_version = %version,
+            feed_version = %feed_version,
+            "install request version differed from live feed; using feed"
+        );
     }
+    let _ = (download_url, signature);
 
-    tracing::info!(%version, %download_url, "downloading update package");
+    tracing::info!(%feed_version, url = %artifact.url, "downloading update package from feed");
     let bytes = state
         .http_client
-        .get(&download_url)
+        .get(&artifact.url)
         .timeout(Duration::from_secs(600))
         .header(
             "User-Agent",
@@ -238,8 +273,8 @@ pub async fn updater_download_and_install(
                 "download_failed",
                 format!("failed to download update: {}", format_reqwest_error(&e)),
                 vec![
-                    ("url".into(), download_url.clone()),
-                    ("version".into(), version.clone()),
+                    ("url".into(), artifact.url.clone()),
+                    ("version".into(), feed_version.clone()),
                 ],
             )
         })?
@@ -248,7 +283,7 @@ pub async fn updater_download_and_install(
             fail_updater(
                 "download_failed",
                 format!("update download HTTP error: {}", format_reqwest_error(&e)),
-                vec![("url".into(), download_url.clone())],
+                vec![("url".into(), artifact.url.clone())],
             )
         })?
         .bytes()
@@ -257,24 +292,24 @@ pub async fn updater_download_and_install(
             fail_updater(
                 "download_failed",
                 format!("failed to read update bytes: {}", format_reqwest_error(&e)),
-                vec![("url".into(), download_url.clone())],
+                vec![("url".into(), artifact.url.clone())],
             )
         })?;
 
-    verify_signature(&bytes, &signature, UPDATER_PUBKEY)?;
+    verify_signature(&bytes, &artifact.signature, UPDATER_PUBKEY)?;
     tracing::info!(bytes = bytes.len(), "update signature verified");
 
     let temp_dir = std::env::temp_dir().join(format!(
         "nexttorrent-{}-updater-{}",
-        version,
+        feed_version,
         std::process::id()
     ));
     std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
 
-    let installer_path = if download_url.to_ascii_lowercase().ends_with(".msi") {
-        temp_dir.join(format!("Nexttorrent_{version}_x64_en-US.msi"))
+    let installer_path = if artifact.url.to_ascii_lowercase().ends_with(".msi") {
+        temp_dir.join(format!("Nexttorrent_{feed_version}_x64_en-US.msi"))
     } else {
-        temp_dir.join(format!("Nexttorrent_{version}_x64-setup.exe"))
+        temp_dir.join(format!("Nexttorrent_{feed_version}_x64-setup.exe"))
     };
     std::fs::write(&installer_path, &bytes).map_err(|e| e.to_string())?;
 
@@ -282,7 +317,7 @@ pub async fn updater_download_and_install(
         fail_updater(
             "installer_launch_failed",
             e,
-            vec![("version".into(), version.clone())],
+            vec![("version".into(), feed_version.clone())],
         )
     })?;
     // NSIS/MSI take over; match tauri-plugin-updater and exit this process.
@@ -333,5 +368,44 @@ mod tests {
         let art = pick_windows_artifact(&platforms).unwrap();
         assert_eq!(art.url, "http://nsis");
         assert_eq!(art.signature, "sig-nsis");
+    }
+
+    #[test]
+    fn install_target_rejects_older_or_equal_version() {
+        let mut platforms = serde_json::Map::new();
+        platforms.insert(
+            "windows-x86_64-nsis".into(),
+            serde_json::json!({"url":"http://nsis","signature":"sig"}),
+        );
+        let older = RemoteRelease {
+            version: "1.0.0".into(),
+            notes: None,
+            platforms: platforms.clone(),
+        };
+        assert!(install_target_from_feed(&older, "1.1.0").is_err());
+        let same = RemoteRelease {
+            version: "1.1.0".into(),
+            notes: None,
+            platforms,
+        };
+        assert!(install_target_from_feed(&same, "1.1.0").is_err());
+    }
+
+    #[test]
+    fn install_target_uses_feed_artifact_when_newer() {
+        let mut platforms = serde_json::Map::new();
+        platforms.insert(
+            "windows-x86_64-nsis".into(),
+            serde_json::json!({"url":"http://feed-nsis","signature":"feed-sig"}),
+        );
+        let release = RemoteRelease {
+            version: "9.9.9".into(),
+            notes: None,
+            platforms,
+        };
+        let (version, art) = install_target_from_feed(&release, "1.0.0").unwrap();
+        assert_eq!(version, "9.9.9");
+        assert_eq!(art.url, "http://feed-nsis");
+        assert_eq!(art.signature, "feed-sig");
     }
 }

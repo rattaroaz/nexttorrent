@@ -82,9 +82,9 @@ export function TorrentWorkspace() {
               ws.log(
                 `RSS: added ${r.magnetsAdded}; ${r.messages.slice(0, 3).join("; ")}`,
               ),
-            ),
-          );
-        }}
+              ),
+            );
+          }}
         onScanWatchFolders={() => {
           runLoggedVoid("Scan watch folders", ws.log, () =>
             watchPoll().then((n) => ws.log(`Watch folders: ${n} new.`)),
@@ -204,7 +204,7 @@ export function TorrentWorkspace() {
             ws.setAddOpen(false);
           }}
         />
-      ) : null}
+            ) : null}
 
       {ws.settingsOpen && ws.settingsDraft ? (
         <SettingsDialog

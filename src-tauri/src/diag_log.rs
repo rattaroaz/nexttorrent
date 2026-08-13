@@ -232,7 +232,7 @@ fn append_lines_with_max(path: &Path, lines: &[String], max_bytes: u64) -> std::
 }
 
 /// Push a stamped human line into the ring buffer and session log.
-#[allow(dead_code)] // retained for tests / manual injection
+#[cfg(test)]
 pub fn push_trace_line(line: String) {
     let stamped = stamp_line(line);
     {
@@ -343,7 +343,7 @@ pub fn emit_failure(
 }
 
 /// Append one human failure line to nexttorrent-diag.log and emit a structured event.
-#[allow(dead_code)] // used by unit tests; production prefers emit_failure
+#[cfg(test)]
 pub fn append_failure(config_parent: &Path, command: &str, message: &str) -> std::io::Result<()> {
     {
         let mut slot = config_dir_slot().lock().expect("config dir lock");

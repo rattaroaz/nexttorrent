@@ -112,7 +112,7 @@ fn build_brief(state: Option<&AppState>) -> AiBrief {
         let settings = st.settings.read().clone();
         (
             count,
-            st.download_root.to_string_lossy().into_owned(),
+            st.download_root.read().to_string_lossy().into_owned(),
             settings_safe_json(&settings),
             librqbit::version().to_string(),
         )
@@ -209,15 +209,13 @@ pub async fn export_ai_diagnostics(
 }
 
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument]
 pub fn log_frontend_event(
-    state: State<'_, AppState>,
     event: String,
     message: String,
     corr: Option<String>,
     command: Option<String>,
 ) -> Result<(), String> {
-    let _ = state;
     let mut ev = crate::diag_event::DiagEvent::new(
         crate::diag_event::DiagLevel::Error,
         "frontend",

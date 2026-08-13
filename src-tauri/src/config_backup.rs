@@ -2,7 +2,7 @@
 
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use walkdir::WalkDir;
 use zip::read::ZipArchive;
@@ -15,6 +15,52 @@ const SETTINGS_ENTRY: &str = "settings.json";
 const WATCH_PROCESSED_ENTRY: &str = "watch_processed.json";
 const SEEDING_STARTED_ENTRY: &str = "seeding_started.json";
 const RQBIT_DIR_PREFIX: &str = "rqbit-session/";
+
+/// Resolve a zip entry to a path under config/cache. Rejects `..` and absolute segments.
+pub(crate) fn zip_output_path(
+    name: &str,
+    config_dir: &Path,
+    cache_dir: &Path,
+) -> Result<Option<PathBuf>, String> {
+    let name = name.replace('\\', "/");
+    if name.ends_with('/') {
+        return Ok(None);
+    }
+    if name == SETTINGS_ENTRY || name == WATCH_PROCESSED_ENTRY || name == SEEDING_STARTED_ENTRY {
+        if Path::new(&name)
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+        {
+            return Err(format!("refusing zip entry {name}"));
+        }
+        return Ok(Some(config_dir.join(name)));
+    }
+    if let Some(rel) = name.strip_prefix(RQBIT_DIR_PREFIX) {
+        if rel.is_empty() {
+            return Ok(None);
+        }
+        let session_root = cache_dir.join("rqbit-session");
+        let relative = Path::new(rel);
+        if relative.is_absolute() {
+            return Err(format!("refusing absolute zip path {name}"));
+        }
+        let mut out = session_root;
+        for component in relative.components() {
+            match component {
+                Component::Normal(part) => out.push(part),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    return Err(format!("refusing zip path traversal in {name}"));
+                }
+                Component::Prefix(_) | Component::RootDir => {
+                    return Err(format!("refusing absolute zip path {name}"));
+                }
+            }
+        }
+        return Ok(Some(out));
+    }
+    Ok(None)
+}
 
 fn add_file_to_zip<W: Write + std::io::Seek>(
     zip: &mut ZipWriter<W>,
@@ -79,18 +125,9 @@ fn extract_zip_entry(
 ) -> Result<(), String> {
     let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
     let name = file.name().to_string();
-    if name.ends_with('/') {
+    let Some(out) = zip_output_path(&name, config_dir, cache_dir)? else {
         return Ok(());
-    }
-    let out: PathBuf =
-        if name == SETTINGS_ENTRY || name == WATCH_PROCESSED_ENTRY || name == SEEDING_STARTED_ENTRY
-        {
-            config_dir.join(name)
-        } else if let Some(rel) = name.strip_prefix(RQBIT_DIR_PREFIX) {
-            cache_dir.join("rqbit-session").join(rel)
-        } else {
-            return Ok(());
-        };
+    };
     if let Some(parent) = out.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -111,10 +148,17 @@ pub fn import_configuration_bundle(
     for i in 0..archive.len() {
         extract_zip_entry(&mut archive, i, config_dir, cache_dir)?;
     }
-    // Reload in-memory settings for immediate UI consistency (session still needs restart).
-    let loaded = crate::settings::load_settings(&state.settings_path)
-        .unwrap_or_else(|_| crate::settings::NexttorrentSettings::default());
+    let loaded = crate::settings::load_settings(&state.settings_path).map_err(|e| {
+        format!("imported settings.json could not be parsed (file was written): {e}")
+    })?;
+    let new_root = loaded.resolved_download_dir_with_fallback(&state.default_download_dir);
+    std::fs::create_dir_all(&new_root).map_err(|e| e.to_string())?;
+    *state.download_root.write() = new_root;
     *state.settings.write() = loaded;
+    *state.watch_processed.write() =
+        crate::watch_folder::load_processed_keys(&state.watch_processed_path);
+    *state.seeding_started.write() =
+        crate::seeding_rules::load_seeding_started(&state.seeding_started_path);
     Ok(())
 }
 
@@ -161,7 +205,8 @@ mod tests {
             settings: Arc::new(RwLock::new(settings)),
             settings_path,
             rqbit_persistence_dir,
-            download_root: download,
+            default_download_dir: download.clone(),
+            download_root: Arc::new(RwLock::new(download)),
             http_client: reqwest::Client::new(),
             watch_processed_path: config_dir.join("watch_processed.json"),
             watch_processed: Arc::new(RwLock::new(HashSet::new())),
@@ -196,6 +241,33 @@ mod tests {
         let on_disk = crate::settings::load_settings(&state.settings_path).unwrap();
         assert_eq!(on_disk.theme, "backup-roundtrip");
 
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn zip_output_path_rejects_traversal() {
+        let tmp = std::env::temp_dir().join(format!("nexttorrent-zip-trav-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let config = tmp.join("config");
+        let cache = tmp.join("cache");
+        std::fs::create_dir_all(&config).unwrap();
+        std::fs::create_dir_all(&cache).unwrap();
+
+        let err = zip_output_path("rqbit-session/../evil.txt", &config, &cache).unwrap_err();
+        assert!(err.contains("traversal"), "{err}");
+        let err =
+            zip_output_path("rqbit-session/foo/../../../outside", &config, &cache).unwrap_err();
+        assert!(err.contains("traversal"), "{err}");
+
+        let ok = zip_output_path("rqbit-session/session.json", &config, &cache)
+            .unwrap()
+            .unwrap();
+        assert!(ok.starts_with(cache.join("rqbit-session")));
+        let settings = zip_output_path("settings.json", &config, &cache)
+            .unwrap()
+            .unwrap();
+        assert_eq!(settings, config.join("settings.json"));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

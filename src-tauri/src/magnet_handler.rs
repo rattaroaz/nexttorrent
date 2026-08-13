@@ -2,14 +2,10 @@
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::cli::{parse_launch_args, LaunchAddRequest};
+use crate::cli::LaunchAddRequest;
 use crate::state::AppState;
 use crate::torrent_commands::{add_magnet_impl, add_torrent_file_impl};
 use crate::validation::validate_magnet_uri;
-
-pub fn parse_launch_add_request(args: &[String]) -> LaunchAddRequest {
-    parse_launch_args(args)
-}
 
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -72,7 +68,6 @@ pub async fn process_external_torrent_file(app: &AppHandle, path: &str, paused: 
                 .details
                 .name
                 .unwrap_or_else(|| resp.details.info_hash.clone());
-            let _ = app.emit("torrent:added", name.clone());
             tracing::info!(name = %name, path = %path, "added torrent from external file");
         }
         Err(e) => {

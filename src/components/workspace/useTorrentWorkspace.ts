@@ -576,10 +576,10 @@ export function useTorrentWorkspace() {
         up != null && up > 0 ? Math.floor(up) : null,
       ),
     );
-    if (applied === undefined) {
+    if (!applied.ok) {
       return;
     }
-    if (applied) {
+    if (applied.value) {
       log("Per-torrent bandwidth limits applied to the running torrent.");
       setSelectedRef(null);
       setSelectedRefs(new Set());
@@ -612,10 +612,15 @@ export function useTorrentWorkspace() {
   }, []);
 
   const openSettings = useCallback(async () => {
-    const s = await runLogged("Open settings", log, getNexttorrentSettings);
-    if (!s) {
+    const loaded = await runLogged(
+      "Open settings",
+      log,
+      getNexttorrentSettings,
+    );
+    if (!loaded.ok) {
       return;
     }
+    const s = loaded.value;
     setSettingsDraft({
       ...DEFAULT_NEXTTORRENT_SETTINGS,
       ...s,
@@ -777,18 +782,18 @@ export function useTorrentWorkspace() {
 
   const openLogsFolderAction = async () => {
     const path = await runLogged("Open logs folder", log, openLogsFolder);
-    if (path) {
-      log(`Opened logs folder: ${path}`);
+    if (path.ok && path.value) {
+      log(`Opened logs folder: ${path.value}`);
     }
   };
 
   const copyAiBriefAction = async () => {
     const brief = await runLogged("Copy AI brief", log, getAiBrief);
-    if (!brief) {
+    if (!brief.ok) {
       return;
     }
     try {
-      await writeText(brief);
+      await writeText(brief.value);
       log("AI brief copied to clipboard (also written to ai-brief.json).");
     } catch (e) {
       log(`Copy AI brief failed: ${formatInvokeError(e)}`);
@@ -801,8 +806,8 @@ export function useTorrentWorkspace() {
       log,
       exportAiDiagnostics,
     );
-    if (path) {
-      log(`Exported AI diagnostics: ${path}`);
+    if (path.ok && path.value) {
+      log(`Exported AI diagnostics: ${path.value}`);
     }
   };
 
@@ -814,10 +819,10 @@ export function useTorrentWorkspace() {
     if (!settingsDraft) {
       return;
     }
-    const ok = await runLogged("Save settings", log, () =>
+    const saved = await runLogged("Save settings", log, () =>
       saveNexttorrentSettings(settingsDraft),
     );
-    if (ok === undefined) {
+    if (!saved.ok) {
       return;
     }
     document.documentElement.dataset.theme = settingsDraft.theme;
@@ -1024,7 +1029,7 @@ export function useTorrentWorkspace() {
     const labelOk = await runLogged("Save torrent label", log, () =>
       setTorrentLabel(selectedRow.info_hash, v.length ? v : null),
     );
-    if (labelOk === undefined) {
+    if (!labelOk.ok) {
       return;
     }
     const base = await runLogged(
@@ -1032,12 +1037,12 @@ export function useTorrentWorkspace() {
       log,
       getNexttorrentSettings,
     );
-    if (!base) {
+    if (!base.ok) {
       return;
     }
     const next: NexttorrentSettings = {
-      ...base,
-      labelColors: { ...base.labelColors },
+      ...base.value,
+      labelColors: { ...base.value.labelColors },
     };
     if (v.length && labelColorHex.trim()) {
       next.labelColors[v] = labelColorHex.trim();
@@ -1045,7 +1050,7 @@ export function useTorrentWorkspace() {
     const saved = await runLogged("Save label color", log, () =>
       saveNexttorrentSettings(next),
     );
-    if (saved === undefined) {
+    if (!saved.ok) {
       return;
     }
     log(`Label updated for ${selectedRow.info_hash}`);

@@ -25,8 +25,6 @@ mod updater_http;
 mod validation;
 mod watch_folder;
 
-use std::collections::HashSet;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,13 +54,6 @@ fn init_tracing() {
         .with(tracing_subscriber::fmt::layer())
         .with(ActivityTraceLayer)
         .try_init();
-}
-
-fn load_watch_processed(path: &Path) -> HashSet<String> {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
 }
 
 fn spawn_stats_loop(handle: tauri::AppHandle, state: AppState) {
@@ -190,7 +181,7 @@ pub fn run() {
 
     let app_result = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            let req = magnet_handler::parse_launch_add_request(&argv);
+            let req = crate::cli::parse_launch_args(&argv);
             magnet_handler::spawn_launch_add_request(app, req);
         }))
         .plugin(tauri_plugin_deep_link::init())
@@ -213,7 +204,12 @@ pub fn run() {
             std::fs::create_dir_all(&paths.cache_dir).map_err(|e| e.to_string())?;
 
             let settings_path = paths.config_dir.join("settings.json");
-            let loaded = crate::settings::load_settings(&settings_path).unwrap_or_default();
+            let loaded = crate::settings::load_settings(&settings_path).map_err(|e| {
+                format!(
+                    "Could not load {}: {e}. The file was left unchanged.",
+                    settings_path.display()
+                )
+            })?;
 
             let effective_download = loaded.resolved_download_dir(&paths);
             std::fs::create_dir_all(&effective_download).map_err(|e| e.to_string())?;
@@ -246,7 +242,9 @@ pub fn run() {
 
             let watch_processed_path = paths.config_dir.join("watch_processed.json");
             let watch_processed =
-                Arc::new(RwLock::new(load_watch_processed(&watch_processed_path)));
+                Arc::new(RwLock::new(crate::watch_folder::load_processed_keys(
+                    &watch_processed_path,
+                )));
 
             let seeding_started_path = seeding_rules::seeding_started_path(&paths.config_dir);
             let seeding_started =
@@ -265,7 +263,8 @@ pub fn run() {
                 settings,
                 settings_path,
                 rqbit_persistence_dir,
-                download_root: effective_download,
+                default_download_dir: paths.download_dir.clone(),
+                download_root: Arc::new(RwLock::new(effective_download)),
                 http_client,
                 watch_processed_path,
                 watch_processed,
@@ -300,9 +299,7 @@ pub fn run() {
                 });
             }
 
-            let launch_req = magnet_handler::parse_launch_add_request(
-                &std::env::args().collect::<Vec<_>>(),
-            );
+            let launch_req = crate::cli::parse_launch_args(&std::env::args().collect::<Vec<_>>());
             magnet_handler::spawn_launch_add_request(&handle, launch_req);
 
             spawn_stats_loop(handle.clone(), state.clone());

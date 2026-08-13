@@ -9,7 +9,7 @@ Nexttorrent embeds **[librqbit](https://github.com/ikatson/rqbit)** (`librqbit` 
 | Phase 2 — piece picking, disk I/O, magnets, multi-file, priorities (`only_files`)                                                         | librqbit session core                                      |
 | Phase 3 — TCP peers, trackers (HTTP(S)/UDP), DHT, PEX/LSD where implemented in librqbit, encryption, listen port range, UPnP, SOCKS proxy | librqbit session options (`SessionOptions`) and peer stack |
 
-Application-specific behavior (Tauri IPC, UI, JSON settings file, labels, force-recheck shim) lives under `src-tauri/src/` and `src/`.
+Application-specific behavior (Tauri IPC, UI, JSON settings file, labels, force-recheck via forget+re-add) lives under `src-tauri/src/` and `src/`.
 
 ## Persistence
 

@@ -217,8 +217,10 @@ pub async fn add_torrent_file_impl(
     let settings = state.settings.read().clone();
     let target_dir: PathBuf = output_folder
         .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| state.download_root.clone());
+        .unwrap_or_else(|| state.live_download_root());
     let reserve = settings
         .disk_space_reserve_mb
         .unwrap_or(0)
@@ -247,7 +249,7 @@ pub async fn add_torrent_file_impl(
     }
     let opts = AddTorrentOptions {
         paused,
-        output_folder,
+        output_folder: Some(target_dir.to_string_lossy().into_owned()),
         only_files,
         overwrite: true,
         ratelimits: settings.limits_config_for_info_hash(
@@ -326,8 +328,24 @@ pub async fn torrent_force_recheck(
     torrent_ref: String,
 ) -> Result<(), String> {
     let idx = parse_torrent_ref_cmd(&state, "torrent_force_recheck", &torrent_ref)?;
-    pause_torrent_action(&state, "torrent_force_recheck", idx).await?;
-    start_torrent_action(&state, "torrent_force_recheck", idx).await
+    let details = state
+        .api
+        .api_torrent_details(idx)
+        .map_err(|err| map_cmd_err(&state, "torrent_force_recheck", err.to_string()))?;
+    let limits = state
+        .settings
+        .read()
+        .limits_config_for_info_hash(&details.info_hash);
+    let readded =
+        forget_and_readd_preserving_files(&state, "torrent_force_recheck", idx, limits).await?;
+    if !readded {
+        return Err(map_cmd_err(
+            &state,
+            "torrent_force_recheck",
+            "cannot recheck until torrent metadata is available".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -414,6 +432,10 @@ pub fn save_nexttorrent_settings(
 ) -> Result<(), String> {
     crate::settings::save_settings(&state.settings_path, &settings)
         .map_err(|err| map_cmd_err(&state, "save_nexttorrent_settings", err.to_string()))?;
+    let new_root = settings.resolved_download_dir_with_fallback(&state.default_download_dir);
+    std::fs::create_dir_all(&new_root)
+        .map_err(|err| map_cmd_err(&state, "save_nexttorrent_settings", err.to_string()))?;
+    *state.download_root.write() = new_root;
     *state.settings.write() = settings.clone();
     let (d, u) = effective_rate_limits(&settings, Local::now());
     state.session.ratelimits.set_download_bps(d);
@@ -502,6 +524,109 @@ pub async fn set_torrent_bandwidth_limits(
     apply_bandwidth_limits_to_running(&state, &info_hash).await
 }
 
+struct ReaddSnapshot {
+    idx: TorrentIdOrHash,
+    torrent_bytes: Bytes,
+    output_folder: String,
+    only_files: Option<Vec<usize>>,
+    was_paused: bool,
+    old_ref: String,
+}
+
+fn capture_readd_snapshot(
+    state: &AppState,
+    idx: TorrentIdOrHash,
+) -> Result<Option<ReaddSnapshot>, String> {
+    let handle = match state.api.mgr_handle(idx) {
+        Ok(h) => h,
+        Err(_) => return Ok(None),
+    };
+    let torrent_bytes = match handle.with_metadata(|m| m.torrent_bytes.clone()) {
+        Ok(b) if !b.is_empty() => b,
+        _ => return Ok(None),
+    };
+    let details = state
+        .api
+        .api_torrent_details(idx)
+        .map_err(|err| map_cmd_err(state, "readd_torrent", err.to_string()))?;
+    Ok(Some(ReaddSnapshot {
+        idx,
+        torrent_bytes,
+        output_folder: details.output_folder.clone(),
+        only_files: handle.only_files(),
+        was_paused: handle.is_paused(),
+        old_ref: torrent_ref_from_details(details.id, &details.info_hash),
+    }))
+}
+
+/// Forget then re-add, keeping files. If re-add fails, retry once so the torrent is not lost.
+async fn forget_and_readd_preserving_files(
+    state: &AppState,
+    command: &'static str,
+    idx: TorrentIdOrHash,
+    ratelimits: librqbit::limits::LimitsConfig,
+) -> Result<bool, String> {
+    let Some(snap) = capture_readd_snapshot(state, idx)? else {
+        return Ok(false);
+    };
+    state
+        .api
+        .api_torrent_action_forget(snap.idx)
+        .await
+        .map_err(|err| map_cmd_err(state, command, err.to_string()))?;
+    state.sequential_streams.remove(&snap.old_ref);
+
+    let paused = snap.was_paused;
+    let only_files = snap.only_files.clone();
+    let make_opts = || AddTorrentOptions {
+        paused,
+        output_folder: Some(snap.output_folder.clone()),
+        only_files: only_files.clone(),
+        overwrite: true,
+        ratelimits,
+        ..Default::default()
+    };
+    match state
+        .api
+        .api_add_torrent(
+            AddTorrent::TorrentFileBytes(snap.torrent_bytes.clone()),
+            Some(make_opts()),
+        )
+        .await
+    {
+        Ok(resp) => {
+            attach_sequential_if_enabled(state, &torrent_ref_from_add_response(&resp));
+            Ok(true)
+        }
+        Err(first) => match state
+            .api
+            .api_add_torrent(
+                AddTorrent::TorrentFileBytes(snap.torrent_bytes.clone()),
+                Some(make_opts()),
+            )
+            .await
+        {
+            Ok(resp) => {
+                tracing::warn!(
+                    error = %first,
+                    folder = %snap.output_folder,
+                    "re-add recovered after initial failure"
+                );
+                attach_sequential_if_enabled(state, &torrent_ref_from_add_response(&resp));
+                Ok(true)
+            }
+            Err(second) => Err(map_cmd_err(
+                state,
+                command,
+                format!(
+                    "torrent was removed from the session and could not be re-added (files kept in {}): {second} (first error: {first})",
+                    snap.output_folder
+                ),
+            )),
+        },
+    }
+}
+
 /// Re-add the torrent with updated `ratelimits` so librqbit's live `Limits` pick them up.
 /// librqbit 8 has no public setter for per-torrent limits after add.
 async fn apply_bandwidth_limits_to_running(
@@ -512,55 +637,23 @@ async fn apply_bandwidth_limits_to_running(
         Ok(i) => i,
         Err(_) => return Ok(false),
     };
-    let handle = match state.api.mgr_handle(idx) {
-        Ok(h) => h,
-        Err(_) => return Ok(false),
-    };
-
-    let torrent_bytes = match handle.with_metadata(|m| m.torrent_bytes.clone()) {
-        Ok(b) if !b.is_empty() => b,
-        _ => {
-            tracing::info!(
-                info_hash,
-                "bandwidth limits saved; torrent metadata not ready for live re-apply"
-            );
-            return Ok(false);
-        }
-    };
-
-    let details = state
-        .api
-        .api_torrent_details(idx)
-        .map_err(|err| map_cmd_err(state, "set_torrent_bandwidth_limits", err.to_string()))?;
-    let only_files = handle.only_files();
-    let was_paused = handle.is_paused();
-    let output_folder = details.output_folder.clone();
-    let old_ref = torrent_ref_from_details(details.id, info_hash);
-
-    state
-        .api
-        .api_torrent_action_forget(idx)
-        .await
-        .map_err(|err| map_cmd_err(state, "set_torrent_bandwidth_limits", err.to_string()))?;
-    state.sequential_streams.remove(&old_ref);
-
     let settings = state.settings.read().clone();
-    let opts = AddTorrentOptions {
-        paused: was_paused,
-        output_folder: Some(output_folder),
-        only_files,
-        overwrite: true,
-        ratelimits: settings.limits_config_for_info_hash(info_hash),
-        ..Default::default()
-    };
-    let resp = state
-        .api
-        .api_add_torrent(AddTorrent::TorrentFileBytes(torrent_bytes), Some(opts))
-        .await
-        .map_err(|err| map_cmd_err(state, "set_torrent_bandwidth_limits", err.to_string()))?;
-    attach_sequential_if_enabled(state, &torrent_ref_from_add_response(&resp));
-    tracing::info!(info_hash, "re-applied per-torrent bandwidth limits");
-    Ok(true)
+    let readded = forget_and_readd_preserving_files(
+        state,
+        "set_torrent_bandwidth_limits",
+        idx,
+        settings.limits_config_for_info_hash(info_hash),
+    )
+    .await?;
+    if !readded {
+        tracing::info!(
+            info_hash,
+            "bandwidth limits saved; torrent metadata not ready for live re-apply"
+        );
+    } else {
+        tracing::info!(info_hash, "re-applied per-torrent bandwidth limits");
+    }
+    Ok(readded)
 }
 
 #[tauri::command]
@@ -640,9 +733,13 @@ pub async fn add_magnet_impl(
     let settings = state.settings.read().clone();
     let info_hash = crate::validation::info_hash_hex_from_magnet(magnet)
         .map_err(|e| map_cmd_err(state, "torrent_add_magnet", e))?;
+    let folder = output_folder
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| state.live_download_root().to_string_lossy().into_owned());
     let opts = AddTorrentOptions {
         paused,
-        output_folder,
+        output_folder: Some(folder),
         only_files,
         overwrite: true,
         ratelimits: settings.limits_config_for_info_hash(&info_hash),
@@ -777,17 +874,19 @@ pub(crate) async fn rss_poll_feeds_impl(state: &AppState) -> Result<RssPollResul
     let mut pending_ids: Vec<(String, Vec<String>)> = Vec::new();
 
     for feed in feeds {
-        if !feed.enabled {
+        if !feed.enabled || !feed.auto_add {
             continue;
         }
         let label = feed.name.as_deref().unwrap_or(&feed.url);
         match crate::rss::fetch_new_matches(&client, &feed).await {
-            Ok((matches, ids)) => {
+            Ok(matches) => {
                 if matches.is_empty() {
                     continue;
                 }
-                pending_ids.push((feed.id.clone(), ids));
+                let mut remembered: Vec<String> = Vec::new();
                 for m in matches {
+                    let mut added_ok = false;
+                    let mut transient_fail = false;
                     for magnet in m.magnets {
                         if let Err(e) = validate_magnet_uri(&magnet) {
                             messages.push(e);
@@ -802,9 +901,16 @@ pub(crate) async fn rss_poll_feeds_impl(state: &AppState) -> Result<RssPollResul
                             }
                         };
                         let settings = state.settings.read().clone();
+                        let folder = m
+                            .output_folder
+                            .clone()
+                            .filter(|s| !s.trim().is_empty())
+                            .unwrap_or_else(|| {
+                                state.live_download_root().to_string_lossy().into_owned()
+                            });
                         let opts = AddTorrentOptions {
                             paused: false,
-                            output_folder: m.output_folder.clone(),
+                            output_folder: Some(folder),
                             overwrite: true,
                             ratelimits: settings.limits_config_for_info_hash(&info_hash),
                             ..Default::default()
@@ -816,14 +922,24 @@ pub(crate) async fn rss_poll_feeds_impl(state: &AppState) -> Result<RssPollResul
                         {
                             Ok(resp) => {
                                 magnets_added += 1;
+                                added_ok = true;
                                 attach_sequential_if_enabled(
                                     state,
                                     &torrent_ref_from_add_response(&resp),
                                 );
                             }
-                            Err(e) => messages.push(format!("{label}: {e}")),
+                            Err(e) => {
+                                transient_fail = true;
+                                messages.push(format!("{label}: {e}"));
+                            }
                         }
                     }
+                    if crate::rss::should_remember_feed_item(added_ok, transient_fail) {
+                        remembered.push(m.id);
+                    }
+                }
+                if !remembered.is_empty() {
+                    pending_ids.push((feed.id.clone(), remembered));
                 }
             }
             Err(e) => messages.push(format!("{label}: {e}")),
@@ -882,16 +998,31 @@ pub(crate) async fn watch_poll_impl(state: &AppState) -> Result<usize, String> {
         if state.watch_processed.read().contains(&key) {
             continue;
         }
-        let bytes =
-            std::fs::read(&p).map_err(|e| map_cmd_err(state, "watch_poll", e.to_string()))?;
-        validate_torrent_bytes(&bytes).map_err(|e| map_cmd_err(state, "watch_poll", e))?;
-        let total = torrent_total_bytes(&bytes).map_err(|e| map_cmd_err(state, "watch_poll", e))?;
+        let bytes = match std::fs::read(&p) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(path=?p, error=%e, "watch folder: skipped unreadable file");
+                continue;
+            }
+        };
+        if let Err(e) = validate_torrent_bytes(&bytes) {
+            tracing::warn!(path=?p, error=%e, "watch folder: skipped invalid torrent");
+            continue;
+        }
+        let total = match torrent_total_bytes(&bytes) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(path=?p, error=%e, "watch folder: skipped unreadable torrent size");
+                continue;
+            }
+        };
         let settings = state.settings.read().clone();
         let reserve = settings
             .disk_space_reserve_mb
             .unwrap_or(0)
             .saturating_mul(1024 * 1024);
-        match available_bytes_for_path(state.download_root.as_path()) {
+        let download_root = state.live_download_root();
+        match available_bytes_for_path(download_root.as_path()) {
             Ok(avail) => {
                 if avail < total.saturating_add(reserve) {
                     tracing::warn!(path=?p, "watch folder: skipped (disk space)");
@@ -902,6 +1033,7 @@ pub(crate) async fn watch_poll_impl(state: &AppState) -> Result<usize, String> {
         }
         let opts = AddTorrentOptions {
             overwrite: true,
+            output_folder: Some(download_root.to_string_lossy().into_owned()),
             ..Default::default()
         };
         match state

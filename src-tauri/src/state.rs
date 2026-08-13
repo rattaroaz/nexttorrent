@@ -17,12 +17,20 @@ pub struct AppState {
     pub settings: Arc<RwLock<NexttorrentSettings>>,
     pub settings_path: PathBuf,
     pub rqbit_persistence_dir: PathBuf,
-    /// Effective session download directory (resolved at startup).
-    pub download_root: PathBuf,
+    /// OS default download directory (used when settings.download_dir is empty).
+    pub default_download_dir: PathBuf,
+    /// Live session download directory (updated when settings are saved).
+    pub download_root: Arc<RwLock<PathBuf>>,
     pub http_client: Client,
     pub watch_processed_path: PathBuf,
     pub watch_processed: Arc<RwLock<HashSet<String>>>,
     pub sequential_streams: Arc<SequentialStreams>,
     pub seeding_started_path: PathBuf,
     pub seeding_started: Arc<RwLock<HashMap<String, u64>>>,
+}
+
+impl AppState {
+    pub fn live_download_root(&self) -> PathBuf {
+        self.download_root.read().clone()
+    }
 }

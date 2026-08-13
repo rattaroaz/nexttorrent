@@ -174,7 +174,9 @@ export function TorrentDetailPane({
                 onClick={() => {
                   runLoggedVoid("Force recheck", onLog, () =>
                     torrentForceRecheck(torrentRef(selectedRow)).then(() =>
-                      onLog("Force recheck (pause/resume)."),
+                      onLog(
+                        "Force recheck started — existing files will be hashed.",
+                      ),
                     ),
                   );
                 }}

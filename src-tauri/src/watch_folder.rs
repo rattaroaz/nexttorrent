@@ -1,5 +1,6 @@
 //! Enumerate `.torrent` paths under configured absolute folders.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 pub fn list_torrent_paths(folders: &[String]) -> Vec<PathBuf> {
@@ -20,6 +21,13 @@ pub fn list_torrent_paths(folders: &[String]) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+pub fn load_processed_keys(path: &Path) -> HashSet<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

@@ -27,12 +27,7 @@ pub(crate) fn extract_magnets_from_text(s: &str) -> Vec<String> {
 
 #[derive(Debug, Clone)]
 pub struct FeedMatch {
-    #[allow(dead_code)]
     pub id: String,
-    #[allow(dead_code)]
-    pub title: String,
-    #[allow(dead_code)]
-    pub category: Option<String>,
     pub magnets: Vec<String>,
     pub output_folder: Option<String>,
 }
@@ -56,7 +51,7 @@ fn quality_keywords(filter: &Option<String>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub fn item_passes_filters(feed: &RssFeedEntry, title: &str, category: Option<&str>) -> bool {
+pub fn item_passes_filters(feed: &RssFeedEntry, title: &str) -> bool {
     let title_lc = title.to_ascii_lowercase();
     if let Some(re) = compile_opt_regex(&feed.title_regex) {
         if !re.is_match(title) {
@@ -73,7 +68,6 @@ pub fn item_passes_filters(feed: &RssFeedEntry, title: &str, category: Option<&s
             return false;
         }
     }
-    let _ = category;
     true
 }
 
@@ -159,11 +153,16 @@ fn magnets_from_item(item: &rss::Item) -> Vec<String> {
     extract_magnets_from_text(&blob)
 }
 
+/// Remember an item when it was added, or when retrying cannot help (no transient add error).
+pub fn should_remember_feed_item(added_ok: bool, had_transient_add_error: bool) -> bool {
+    added_ok || !had_transient_add_error
+}
+
 /// Returns new feed matches not previously recorded in `last_seen_ids`.
 pub async fn fetch_new_matches(
     client: &Client,
     feed: &RssFeedEntry,
-) -> Result<(Vec<FeedMatch>, Vec<String>), String> {
+) -> Result<Vec<FeedMatch>, String> {
     let url = torznab_request_url(feed);
     let body = client
         .get(&url)
@@ -179,7 +178,6 @@ pub async fn fetch_new_matches(
 
     let channel = Channel::read_from(&body[..]).map_err(|e| e.to_string())?;
     let mut matches = Vec::new();
-    let mut new_ids = Vec::new();
     let known: HashSet<String> = feed.last_seen_ids.iter().cloned().collect();
 
     for item in channel.items() {
@@ -190,7 +188,7 @@ pub async fn fetch_new_matches(
 
         let title = item.title().unwrap_or("").to_string();
         let category = item_category(item);
-        if !item_passes_filters(feed, &title, category.as_deref()) {
+        if !item_passes_filters(feed, &title) {
             continue;
         }
 
@@ -199,17 +197,14 @@ pub async fn fetch_new_matches(
             continue;
         }
 
-        new_ids.push(id.clone());
         matches.push(FeedMatch {
             id,
-            title,
-            category: category.clone(),
             magnets,
             output_folder: resolve_output_folder(feed, category.as_deref()),
         });
     }
 
-    Ok((matches, new_ids))
+    Ok(matches)
 }
 
 #[cfg(test)]
@@ -245,8 +240,8 @@ mod tests {
             category_save_paths: Default::default(),
             default_save_path: None,
         };
-        assert!(item_passes_filters(&feed, "Movie 1080p WEB-DL x264", None));
-        assert!(!item_passes_filters(&feed, "Movie 720p WEB-DL", None));
+        assert!(item_passes_filters(&feed, "Movie 1080p WEB-DL x264"));
+        assert!(!item_passes_filters(&feed, "Movie 720p WEB-DL"));
     }
 
     #[test]
@@ -272,5 +267,13 @@ mod tests {
             resolve_output_folder(&feed, Some("Movies")),
             Some("D:\\Movies".into())
         );
+    }
+
+    #[test]
+    fn remember_item_only_after_success_or_when_retry_cannot_help() {
+        assert!(should_remember_feed_item(true, true));
+        assert!(should_remember_feed_item(true, false));
+        assert!(should_remember_feed_item(false, false));
+        assert!(!should_remember_feed_item(false, true));
     }
 }

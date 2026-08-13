@@ -212,11 +212,15 @@ impl NexttorrentSettings {
     }
 
     pub fn resolved_download_dir(&self, paths: &AppPaths) -> PathBuf {
+        self.resolved_download_dir_with_fallback(&paths.download_dir)
+    }
+
+    pub fn resolved_download_dir_with_fallback(&self, fallback: &Path) -> PathBuf {
         self.download_dir
             .as_ref()
             .map(PathBuf::from)
             .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or_else(|| paths.download_dir.clone())
+            .unwrap_or_else(|| fallback.to_path_buf())
     }
 }
 
@@ -236,4 +240,35 @@ pub fn save_settings(path: &Path, settings: &NexttorrentSettings) -> anyhow::Res
     let text = serde_json::to_string_pretty(settings)?;
     fs::write(path, text)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_settings_file_is_defaults() {
+        let path = std::env::temp_dir().join(format!(
+            "nexttorrent-missing-settings-{}.json",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&path);
+        let loaded = load_settings(&path).unwrap();
+        assert_eq!(loaded.theme, default_theme());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn corrupt_settings_file_is_not_ok() {
+        let path = std::env::temp_dir().join(format!(
+            "nexttorrent-corrupt-settings-{}.json",
+            std::process::id()
+        ));
+        fs::write(&path, "{ this is not json").unwrap();
+        let err = load_settings(&path).unwrap_err();
+        assert!(!err.to_string().is_empty());
+        let on_disk = fs::read_to_string(&path).unwrap();
+        assert_eq!(on_disk, "{ this is not json");
+        let _ = fs::remove_file(&path);
+    }
 }
