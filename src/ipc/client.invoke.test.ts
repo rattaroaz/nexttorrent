@@ -105,7 +105,7 @@ describe("ipc invoke payloads (camelCase for Tauri 2)", () => {
   it("updaterCheckFeed invokes without payload", async () => {
     vi.mocked(core.invoke).mockResolvedValue({
       status: "up_to_date",
-      installedVersion: "1.2.0",
+      installedVersion: "1.2.1",
     });
     await updaterCheckFeed();
     expect(core.invoke).toHaveBeenCalledWith(IPC_COMMANDS.updaterCheckFeed);
@@ -116,14 +116,14 @@ describe("ipc invoke payloads (camelCase for Tauri 2)", () => {
     await updaterDownloadAndInstall(
       "https://example.com/setup.exe",
       "sig",
-      "1.2.0",
+      "1.2.1",
     );
     expect(core.invoke).toHaveBeenCalledWith(
       IPC_COMMANDS.updaterDownloadAndInstall,
       {
         downloadUrl: "https://example.com/setup.exe",
         signature: "sig",
-        version: "1.2.0",
+        version: "1.2.1",
       },
     );
   });

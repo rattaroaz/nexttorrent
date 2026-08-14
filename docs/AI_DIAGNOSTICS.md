@@ -40,7 +40,7 @@ Windows config dir is typically under `%APPDATA%\com.nexttorrent.desktop` (or th
   "corr": "a1b2c3d4",
   "msg": "…",
   "fields": { "url": "…" },
-  "appVersion": "1.2.0"
+  "appVersion": "1.2.1"
 }
 ```
 

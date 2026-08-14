@@ -16,7 +16,7 @@ Tauri builds a **`.msi`** using the [WiX Toolset v3](https://wixtoolset.org/docs
 1. Install WiX v3 so **`candle`** and **`light`** are on your `PATH` (Visual Studio “WiX Toolset” component, or the standalone WiX installer).
 2. From the repo root: **`npm run build:msi`** (same as `npm run tauri build`; runs the frontend `beforeBuildCommand`, then bundles).
 
-Output: **`src-tauri/target/release/bundle/msi/`** — look for `Nexttorrent_1.2.0_x64_en-US.msi` (exact filename follows version and locale from `tauri.conf.json`). An NSIS setup `.exe` may appear under `bundle/nsis/` when `bundle.targets` includes it (`all` does).
+Output: **`src-tauri/target/release/bundle/msi/`** — look for `Nexttorrent_1.2.1_x64_en-US.msi` (exact filename follows version and locale from `tauri.conf.json`). An NSIS setup `.exe` may appear under `bundle/nsis/` when `bundle.targets` includes it (`all` does).
 
 MSI builds **only run on Windows**; they cannot be produced on Linux/macOS hosts without a Windows toolchain.
 

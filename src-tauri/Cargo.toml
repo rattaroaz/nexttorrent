@@ -1,6 +1,6 @@
 [package]
 name = "nexttorrent"
-version = "1.2.0"
+version = "1.2.1"
 description = "Nexttorrent desktop client"
 authors = ["you"]
 edition = "2021"
