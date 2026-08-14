@@ -69,6 +69,7 @@ fn now_stamp() -> String {
 }
 
 /// Prefix a line with a local timestamp when it does not already look stamped.
+#[cfg(test)]
 pub fn stamp_line(line: impl AsRef<str>) -> String {
     let line = line.as_ref();
     if looks_timestamped(line) {
@@ -77,6 +78,7 @@ pub fn stamp_line(line: impl AsRef<str>) -> String {
     format!("{} {line}", now_stamp())
 }
 
+#[cfg(test)]
 fn looks_timestamped(line: &str) -> bool {
     let b = line.as_bytes();
     b.len() >= 23 && b[4] == b'-' && b[7] == b'-' && b[10] == b'T' && b[13] == b':' && b[16] == b':'

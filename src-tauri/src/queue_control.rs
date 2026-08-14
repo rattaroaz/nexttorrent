@@ -43,11 +43,7 @@ fn resume_slot_count(live: usize, max: Option<u32>) -> usize {
         None => usize::MAX,
         Some(max) => {
             let max = max as usize;
-            if live > max {
-                0
-            } else {
-                max - live
-            }
+            max.saturating_sub(live)
         }
     }
 }
