@@ -223,16 +223,29 @@ pub async fn apply_queue_rules(
     seeding_rules::apply_seeding_rules(state, seeding_started).await;
 }
 
+fn merge_queue_set(
+    before: &HashSet<String>,
+    local: HashSet<String>,
+    current: &HashSet<String>,
+) -> HashSet<String> {
+    local
+        .into_iter()
+        .filter(|hash| current.contains(hash) || !before.contains(hash))
+        .collect()
+}
+
 pub fn spawn_queue_loop(state: AppState) {
     let bg = state.clone();
     tauri::async_runtime::spawn(async move {
         let mut stall_ticks: HashMap<String, u32> = HashMap::new();
-        let mut queue_paused_downloads: HashSet<String> = HashSet::new();
-        let mut queue_paused_uploads: HashSet<String> = HashSet::new();
         let mut interval = tokio::time::interval(Duration::from_secs(TICK_SECS));
         loop {
             interval.tick().await;
             let mut seeding = bg.seeding_started.read().clone();
+            let before_downloads = bg.queue_paused_downloads.read().clone();
+            let before_uploads = bg.queue_paused_uploads.read().clone();
+            let mut queue_paused_downloads = before_downloads.clone();
+            let mut queue_paused_uploads = before_uploads.clone();
             apply_queue_rules(
                 &bg,
                 &mut stall_ticks,
@@ -242,6 +255,18 @@ pub fn spawn_queue_loop(state: AppState) {
             )
             .await;
             *bg.seeding_started.write() = seeding;
+            {
+                let current = bg.queue_paused_downloads.read();
+                let merged = merge_queue_set(&before_downloads, queue_paused_downloads, &current);
+                drop(current);
+                *bg.queue_paused_downloads.write() = merged;
+            }
+            {
+                let current = bg.queue_paused_uploads.read();
+                let merged = merge_queue_set(&before_uploads, queue_paused_uploads, &current);
+                drop(current);
+                *bg.queue_paused_uploads.write() = merged;
+            }
         }
     });
 }
@@ -256,6 +281,19 @@ mod tests {
         assert!(should_count_stall_tick(0.0, true));
         assert!(!should_count_stall_tick(0.5, true));
         assert!(!should_count_stall_tick(0.5, false));
+    }
+
+    #[test]
+    fn user_pause_survives_queue_writeback() {
+        let before = HashSet::from(["queued".to_string(), "user".to_string()]);
+        let mut local = before.clone();
+        local.remove("queued");
+        local.insert("fresh".to_string());
+        let current = HashSet::from(["queued".to_string()]);
+        let merged = merge_queue_set(&before, local, &current);
+        assert!(merged.contains("queued"));
+        assert!(merged.contains("fresh"));
+        assert!(!merged.contains("user"));
     }
 
     #[test]

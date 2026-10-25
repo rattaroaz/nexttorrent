@@ -25,6 +25,7 @@ mod updater_http;
 mod validation;
 mod watch_folder;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -273,9 +274,12 @@ pub fn run() {
                 sequential_streams: Arc::new(sequential::SequentialStreams::new()),
                 seeding_started_path,
                 seeding_started,
+                queue_paused_downloads: Arc::new(RwLock::new(HashSet::new())),
+                queue_paused_uploads: Arc::new(RwLock::new(HashSet::new())),
             };
 
             app.manage(state.clone());
+            magnet_handler::drain_pending(app.handle());
 
             tray::setup_tray(app.handle()).map_err(|e| e.to_string())?;
 

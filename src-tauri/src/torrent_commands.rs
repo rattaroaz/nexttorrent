@@ -287,6 +287,7 @@ pub async fn add_torrent_file_impl(
 #[tracing::instrument(skip(state), fields(torrent_ref = %torrent_ref))]
 pub async fn torrent_pause(state: State<'_, AppState>, torrent_ref: String) -> Result<(), String> {
     let idx = parse_torrent_ref_cmd(&state, "torrent_pause", &torrent_ref)?;
+    clear_queue_pause_for_ref(&state, idx);
     pause_torrent_action(&state, "torrent_pause", idx).await
 }
 
@@ -294,6 +295,7 @@ pub async fn torrent_pause(state: State<'_, AppState>, torrent_ref: String) -> R
 #[tracing::instrument(skip(state), fields(torrent_ref = %torrent_ref))]
 pub async fn torrent_resume(state: State<'_, AppState>, torrent_ref: String) -> Result<(), String> {
     let idx = parse_torrent_ref_cmd(&state, "torrent_resume", &torrent_ref)?;
+    clear_queue_pause_for_ref(&state, idx);
     start_torrent_action(&state, "torrent_resume", idx).await
 }
 
@@ -305,6 +307,7 @@ pub async fn torrent_remove(
     delete_files: bool,
 ) -> Result<(), String> {
     let idx = parse_torrent_ref_cmd(&state, "torrent_remove", &torrent_ref)?;
+    let info_hash = state.api.api_torrent_details(idx).ok().map(|d| d.info_hash);
     if delete_files {
         state
             .api
@@ -319,6 +322,47 @@ pub async fn torrent_remove(
             .map_err(|err| map_cmd_err(&state, "torrent_remove", err.to_string()))?;
     }
     state.sequential_streams.remove(&torrent_ref);
+    if let Some(info_hash) = info_hash {
+        clear_queue_pause_hash(&state, &info_hash);
+        forget_torrent_metadata(&state, &info_hash, &torrent_ref)?;
+    }
+    Ok(())
+}
+
+fn clear_queue_pause_hash(state: &AppState, info_hash: &str) {
+    state.queue_paused_downloads.write().remove(info_hash);
+    state.queue_paused_uploads.write().remove(info_hash);
+}
+
+fn clear_queue_pause_for_ref(state: &AppState, idx: TorrentIdOrHash) {
+    if let Ok(details) = state.api.api_torrent_details(idx) {
+        clear_queue_pause_hash(state, &details.info_hash);
+    }
+}
+
+/// Drop label and per-torrent limit entries so removed torrents do not linger in settings.json.
+fn forget_torrent_metadata(
+    state: &AppState,
+    info_hash: &str,
+    torrent_ref: &str,
+) -> Result<(), String> {
+    let mut s = state.settings.read().clone();
+    let removed_label = s.labels_by_info_hash.remove(info_hash);
+    s.per_torrent_limits_by_info_hash.remove(info_hash);
+    if let Some(label) = removed_label {
+        let still_used = s.labels_by_info_hash.values().any(|l| l == &label);
+        if !still_used {
+            s.label_colors.remove(&label);
+        }
+    }
+    {
+        let mut seeding = state.seeding_started.write();
+        seeding.remove(info_hash);
+        seeding.remove(torrent_ref);
+    }
+    crate::settings::save_settings(&state.settings_path, &s)
+        .map_err(|err| map_cmd_err(state, "torrent_remove", err.to_string()))?;
+    *state.settings.write() = s;
     Ok(())
 }
 
@@ -807,6 +851,9 @@ pub async fn add_magnet_impl(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| state.live_download_root().to_string_lossy().into_owned());
+    let target_dir = PathBuf::from(&folder);
+    let reserve = reserve_bytes(&settings);
+    require_disk_space(state, &target_dir, reserve, "torrent_add_magnet")?;
     let opts = AddTorrentOptions {
         paused,
         output_folder: Some(folder),
@@ -820,8 +867,114 @@ pub async fn add_magnet_impl(
         .api_add_torrent(AddTorrent::Url(magnet.into()), Some(opts))
         .await
         .map_err(|err| map_cmd_err(state, "torrent_add_magnet", err.to_string()))?;
+    let declared = torrent_declared_bytes(&resp.details);
+    if declared > 0 {
+        if let Err(err) = require_disk_space(
+            state,
+            &target_dir,
+            declared.saturating_add(reserve),
+            "torrent_add_magnet",
+        ) {
+            rollback_added_torrent(state, &resp).await;
+            return Err(err);
+        }
+    } else {
+        spawn_magnet_disk_guard(state, torrent_ref_from_add_response(&resp), target_dir);
+    }
     attach_sequential_if_enabled(state, &torrent_ref_from_add_response(&resp));
     Ok(resp)
+}
+
+fn reserve_bytes(settings: &crate::settings::NexttorrentSettings) -> u64 {
+    settings
+        .disk_space_reserve_mb
+        .unwrap_or(0)
+        .saturating_mul(1024 * 1024)
+}
+
+fn require_disk_space(
+    state: &AppState,
+    target: &Path,
+    needed: u64,
+    command: &'static str,
+) -> Result<(), String> {
+    match available_bytes_for_path(target) {
+        Ok(avail) if avail < needed => Err(map_cmd_err(
+            state,
+            command,
+            format!(
+                "insufficient disk space (need at least {needed} bytes including reserve; {avail} available)"
+            ),
+        )),
+        Ok(_) => Ok(()),
+        Err(e) => {
+            tracing::warn!(
+                path = %target.display(),
+                err = %e,
+                "disk space check skipped; add still attempted"
+            );
+            Ok(())
+        }
+    }
+}
+
+fn torrent_declared_bytes(details: &TorrentDetailsResponse) -> u64 {
+    details
+        .files
+        .as_ref()
+        .map(|files| {
+            files
+                .iter()
+                .fold(0u64, |acc, file| acc.saturating_add(file.length))
+        })
+        .unwrap_or(0)
+}
+
+async fn rollback_added_torrent(state: &AppState, resp: &ApiAddTorrentResponse) {
+    let key = torrent_ref_from_add_response(resp);
+    if let Ok(idx) = TorrentIdOrHash::parse(&key) {
+        if state.api.api_torrent_action_delete(idx).await.is_err() {
+            if let Ok(idx) = TorrentIdOrHash::parse(&key) {
+                let _ = state.api.api_torrent_action_forget(idx).await;
+            }
+        }
+    }
+}
+
+/// Magnets often have no size until metadata arrives. Pause the torrent if the
+/// declared length plus reserve no longer fits, and keep it out of the queue.
+fn spawn_magnet_disk_guard(state: &AppState, torrent_ref: String, target: PathBuf) {
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        for _ in 0..45 {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let Ok(idx) = TorrentIdOrHash::parse(&torrent_ref) else {
+                return;
+            };
+            let Ok(details) = state.api.api_torrent_details(idx) else {
+                return;
+            };
+            let total = torrent_declared_bytes(&details);
+            if total == 0 {
+                continue;
+            }
+            let reserve = reserve_bytes(&state.settings.read());
+            let needed = total.saturating_add(reserve);
+            if let Ok(avail) = available_bytes_for_path(&target) {
+                if avail < needed {
+                    tracing::warn!(
+                        torrent = %torrent_ref,
+                        needed,
+                        avail,
+                        "pausing torrent: disk space below reserve after metadata"
+                    );
+                    clear_queue_pause_hash(&state, &details.info_hash);
+                    let _ = state.api.api_torrent_action_pause(idx).await;
+                }
+            }
+            return;
+        }
+    });
 }
 
 fn file_abs_path(output_folder: &str, components: &[String], name: &str) -> PathBuf {
@@ -909,6 +1062,8 @@ pub async fn pause_all_impl(state: &AppState) -> Result<(), String> {
     let list = state
         .api
         .api_torrent_list_ext(ApiTorrentListOpts { with_stats: false });
+    state.queue_paused_downloads.write().clear();
+    state.queue_paused_uploads.write().clear();
     for t in list.torrents {
         let key = torrent_ref_from_details(t.id, &t.info_hash);
         let idx = parse_torrent_ref_cmd(state, "torrent_pause_all", &key)?;
@@ -924,6 +1079,8 @@ pub async fn torrent_resume_all(state: State<'_, AppState>) -> Result<(), String
 
 #[tracing::instrument(skip_all)]
 pub async fn resume_all_impl(state: &AppState) -> Result<(), String> {
+    state.queue_paused_downloads.write().clear();
+    state.queue_paused_uploads.write().clear();
     let list = state
         .api
         .api_torrent_list_ext(ApiTorrentListOpts { with_stats: false });

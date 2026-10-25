@@ -216,6 +216,8 @@ mod tests {
             sequential_streams: Arc::new(SequentialStreams::new()),
             seeding_started_path: config_dir.join("seeding_started.json"),
             seeding_started: Arc::new(RwLock::new(HashMap::new())),
+            queue_paused_downloads: Arc::new(RwLock::new(HashSet::new())),
+            queue_paused_uploads: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 

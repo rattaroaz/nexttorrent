@@ -1,11 +1,20 @@
 //! External magnet URIs and torrent files from OS handlers, CLI args, or deep links.
 
+use std::sync::Mutex;
+
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::cli::LaunchAddRequest;
 use crate::state::AppState;
 use crate::torrent_commands::{add_magnet_impl, add_torrent_file_impl};
 use crate::validation::validate_magnet_uri;
+
+enum PendingAdd {
+    Magnet { magnet: String, paused: bool },
+    TorrentFile { path: String, paused: bool },
+}
+
+static PENDING: Mutex<Vec<PendingAdd>> = Mutex::new(Vec::new());
 
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -28,7 +37,11 @@ pub async fn process_external_magnet(app: &AppHandle, magnet: &str, paused: bool
     }
 
     let Some(state) = app.try_state::<AppState>() else {
-        tracing::warn!("external magnet before app state ready");
+        tracing::warn!("external magnet before app state ready; queued");
+        enqueue(PendingAdd::Magnet {
+            magnet: magnet.to_string(),
+            paused,
+        });
         return;
     };
 
@@ -57,7 +70,11 @@ pub async fn process_external_torrent_file(app: &AppHandle, path: &str, paused: 
     }
 
     let Some(state) = app.try_state::<AppState>() else {
-        tracing::warn!("external torrent file before app state ready");
+        tracing::warn!("external torrent file before app state ready; queued");
+        enqueue(PendingAdd::TorrentFile {
+            path: path.to_string(),
+            paused,
+        });
         return;
     };
 
@@ -78,28 +95,88 @@ pub async fn process_external_torrent_file(app: &AppHandle, path: &str, paused: 
     }
 }
 
+fn enqueue(item: PendingAdd) {
+    match PENDING.lock() {
+        Ok(mut q) => q.push(item),
+        Err(poisoned) => poisoned.into_inner().push(item),
+    }
+}
+
+fn take_pending() -> Vec<PendingAdd> {
+    match PENDING.lock() {
+        Ok(mut q) => std::mem::take(&mut *q),
+        Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
+    }
+}
+
+fn spawn_magnet(app: &AppHandle, magnet: String, paused: bool) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        process_external_magnet(&handle, &magnet, paused).await;
+    });
+}
+
+fn spawn_torrent_file(app: &AppHandle, path: String, paused: bool) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        process_external_torrent_file(&handle, &path, paused).await;
+    });
+}
+
+/// Hold the add until `AppState` exists when a deep link arrives during startup.
+/// The ready check and the queue push share one lock so a drain cannot miss the item.
+fn submit(app: &AppHandle, item: PendingAdd) {
+    let mut guard = match PENDING.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if app.try_state::<AppState>().is_none() {
+        guard.push(item);
+        return;
+    }
+    drop(guard);
+    match item {
+        PendingAdd::Magnet { magnet, paused } => spawn_magnet(app, magnet, paused),
+        PendingAdd::TorrentFile { path, paused } => spawn_torrent_file(app, path, paused),
+    }
+}
+
+/// Drain adds that arrived before the session was managed. Call after `app.manage`.
+pub fn drain_pending(app: &AppHandle) {
+    for item in take_pending() {
+        submit(app, item);
+    }
+}
+
 pub fn spawn_launch_add_request(app: &AppHandle, req: LaunchAddRequest) {
     for magnet in req.magnets {
-        let handle = app.clone();
-        let paused = req.paused;
-        tauri::async_runtime::spawn(async move {
-            process_external_magnet(&handle, &magnet, paused).await;
-        });
+        submit(
+            app,
+            PendingAdd::Magnet {
+                magnet,
+                paused: req.paused,
+            },
+        );
     }
     for path in req.torrent_files {
-        let handle = app.clone();
-        let paused = req.paused;
-        tauri::async_runtime::spawn(async move {
-            process_external_torrent_file(&handle, &path, paused).await;
-        });
+        submit(
+            app,
+            PendingAdd::TorrentFile {
+                path,
+                paused: req.paused,
+            },
+        );
     }
 }
 
 pub fn spawn_external_magnets(app: &AppHandle, magnets: Vec<String>) {
     for magnet in magnets {
-        let handle = app.clone();
-        tauri::async_runtime::spawn(async move {
-            process_external_magnet(&handle, &magnet, false).await;
-        });
+        submit(
+            app,
+            PendingAdd::Magnet {
+                magnet,
+                paused: false,
+            },
+        );
     }
 }

@@ -56,6 +56,24 @@ import {
 import type { ContextMenuAction } from "./TorrentContextMenu";
 import type { LogLevelFilter } from "../../utils/logFilter";
 
+function blankToNull(value: string | null | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function engineRestartNeeded(
+  before: NexttorrentSettings,
+  after: NexttorrentSettings,
+): boolean {
+  return (
+    blankToNull(before.downloadDir) !== blankToNull(after.downloadDir) ||
+    before.listenPortStart !== after.listenPortStart ||
+    before.listenPortEnd !== after.listenPortEnd ||
+    before.enableUpnp !== after.enableUpnp ||
+    blankToNull(before.socksProxy) !== blankToNull(after.socksProxy)
+  );
+}
+
 async function notifyTorrentDone(body: string) {
   try {
     const n = await import("@tauri-apps/plugin-notification");
@@ -111,6 +129,7 @@ export function useTorrentWorkspace() {
   const [perTorrentUpLimit, setPerTorrentUpLimit] = useState("");
   const [batchLabelDraft, setBatchLabelDraft] = useState("");
   const lastClickIndex = useRef<number | null>(null);
+  const settingsBaseline = useRef<NexttorrentSettings | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [sortBy, setSortBy] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -672,7 +691,7 @@ export function useTorrentWorkspace() {
       return;
     }
     const s = loaded.value;
-    setSettingsDraft({
+    const draft: NexttorrentSettings = {
       ...DEFAULT_NEXTTORRENT_SETTINGS,
       ...s,
       labelsByInfoHash: { ...s.labelsByInfoHash },
@@ -685,7 +704,9 @@ export function useTorrentWorkspace() {
           ...x,
         })),
       },
-    });
+    };
+    settingsBaseline.current = draft;
+    setSettingsDraft(draft);
     setSettingsOpen(true);
     void listNetworkInterfaces()
       .then(setNetworkInterfaces)
@@ -902,6 +923,25 @@ export function useTorrentWorkspace() {
     }
     log("Settings saved.");
     setSettingsOpen(false);
+    const baseline = settingsBaseline.current;
+    if (baseline && engineRestartNeeded(baseline, normalized)) {
+      const restart = await ask(
+        "Download directory, listen ports, UPnP, or the SOCKS proxy changed. Those apply after a restart. Restart Nexttorrent now?",
+        { title: "Restart to apply network settings", kind: "warning" },
+      );
+      if (restart) {
+        try {
+          const { relaunch } = await import("@tauri-apps/plugin-process");
+          await relaunch();
+        } catch (e) {
+          log(`Restart failed: ${formatInvokeError(e)}`);
+        }
+      } else {
+        log(
+          "Network settings saved. Restart Nexttorrent to apply download directory, ports, UPnP, and proxy.",
+        );
+      }
+    }
   };
 
   // OS file drag-and-drop (.torrent paths from Tauri webview).

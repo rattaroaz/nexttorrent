@@ -687,8 +687,8 @@ export function SettingsDialog({
       />
 
       <p className="hint">
-        Listen ports and proxy changes may require restarting the app to take
-        full effect in the engine.
+        Download directory, listen ports, UPnP, and the SOCKS proxy apply after
+        a restart. Saving offers to restart when those change.
       </p>
       <div className="modal-actions">
         <button

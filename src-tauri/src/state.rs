@@ -27,6 +27,10 @@ pub struct AppState {
     pub sequential_streams: Arc<SequentialStreams>,
     pub seeding_started_path: PathBuf,
     pub seeding_started: Arc<RwLock<HashMap<String, u64>>>,
+    /// Info hashes the download queue paused. User pause removes hashes so they stay stopped.
+    pub queue_paused_downloads: Arc<RwLock<HashSet<String>>>,
+    /// Info hashes the upload queue paused. Seeding-rule pauses are not stored here.
+    pub queue_paused_uploads: Arc<RwLock<HashSet<String>>>,
 }
 
 impl AppState {
