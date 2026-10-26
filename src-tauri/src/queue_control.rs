@@ -285,15 +285,25 @@ mod tests {
 
     #[test]
     fn user_pause_survives_queue_writeback() {
-        let before = HashSet::from(["queued".to_string(), "user".to_string()]);
+        // `before` is the shared set at tick start. The loop resumes `resumed`
+        // and cap-pauses `fresh`. A user pause during the tick removes `user`
+        // from the shared set (`current`). `queued` is still queue-paused on
+        // both sides. Putting back a hash the loop removed would pin resumed
+        // torrents in the set, so `resumed` must stay out.
+        let before = HashSet::from([
+            "queued".to_string(),
+            "user".to_string(),
+            "resumed".to_string(),
+        ]);
         let mut local = before.clone();
-        local.remove("queued");
+        local.remove("resumed");
         local.insert("fresh".to_string());
-        let current = HashSet::from(["queued".to_string()]);
+        let current = HashSet::from(["queued".to_string(), "resumed".to_string()]);
         let merged = merge_queue_set(&before, local, &current);
         assert!(merged.contains("queued"));
         assert!(merged.contains("fresh"));
         assert!(!merged.contains("user"));
+        assert!(!merged.contains("resumed"));
     }
 
     #[test]
